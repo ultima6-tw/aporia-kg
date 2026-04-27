@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+chromadb
+google-genai
+python-dotenv
+requests
+beautifulsoup4
+lxml
+pypdf
+pydantic
+pydantic-settings
+duckduckgo-search
+aiofiles
+python-multipart
+ddgs
+scikit-learn
