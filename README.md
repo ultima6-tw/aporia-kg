@@ -14,6 +14,10 @@ Most tools answer questions you already know how to ask. Aporia KG works differe
 
 Tell it **"I want to climb Mt. Fuji"** or **"I want to learn machine learning"** or **"I want to launch a product"** — and it builds a knowledge graph of everything required, including prerequisites you never thought to mention.
 
+It's especially useful for **academic research**: upload your papers, then tell it your research topic. Aporia KG pulls relevant concepts, methods, and connections from your literature and maps them visually — so you can see where your contribution fits before you write a single sentence.
+
+> *"I'm writing a paper on transformer attention mechanisms — help me map the literature"*
+
 As you talk, the graph evolves organically. Every message adds nodes, resolves unknowns, and tightens the map.
 
 ### Node types
@@ -173,7 +177,7 @@ All content is chunked, embedded, and stored locally in ChromaDB. The content la
 ## Usage Tips
 
 **Starting a session**
-- Type any goal, however broad: *"learn to cook Japanese food"*, *"build a FPGA project"*, *"start a coffee shop"*
+- Type any goal, however broad: *"learn to cook Japanese food"*, *"build a FPGA project"*, *"start a coffee shop"*, *"write a paper on transformer attention mechanisms"*
 - The first response gives you 8–15 nodes right away (Seed Expansion)
 
 **Navigating the graph**
