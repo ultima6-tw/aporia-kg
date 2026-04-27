@@ -195,7 +195,7 @@ All content is chunked, embedded, and stored locally in ChromaDB. The content la
 - 📥 **Export** — when the map is complete, export as Markdown checklist
 
 **Switching layout**
-Use the ⊞ button (bottom right) to switch between force-directed, tree (top-down / left-right), and radial layouts.
+Use the ⊞ button (zoom controls, right side) to switch between force-directed, tree (top-down / left-right), and radial layouts.
 
 ---
 
