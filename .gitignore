@@ -24,6 +24,9 @@ chroma_db/
 PROJECT.md
 NOTES.md
 
+# Tests (internal analysis scripts)
+tests/
+
 # macOS
 .DS_Store
 
