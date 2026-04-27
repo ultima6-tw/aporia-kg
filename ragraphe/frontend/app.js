@@ -133,6 +133,16 @@ const TRANSLATIONS = {
     'adm.load_fail':        '載入失敗',
     'adm.add_fail':         '新增失敗',
     'adm.del_fail':         '刪除失敗',
+    // Chat actions
+    'chat.undo':            '⎌ 撤回上一步',
+    'chat.undo_n':          '⎌ 撤回上一步 ({n})',
+    'chat.export_prompt':   '📋 匯出為 Prompt',
+    'chat.adjust_ph':       '說說你想調整的部分…',
+    // Layout
+    'layout.force':         '⋯ 力導向',
+    'layout.td':            '⊤ 樹狀（由上而下）',
+    'layout.lr':            '⊢ 樹狀（由左而右）',
+    'layout.radialout':     '◎ 放射狀',
     // Lang
     'lang.label':           '語言',
   },
@@ -258,6 +268,17 @@ const TRANSLATIONS = {
     'adm.load_fail':        'Load failed',
     'adm.add_fail':         'Add failed',
     'adm.del_fail':         'Delete failed',
+    // Chat actions
+    'chat.undo':            '⎌ Undo last step',
+    'chat.undo_n':          '⎌ Undo last step ({n})',
+    'chat.export_prompt':   '📋 Export as Prompt',
+    'chat.adjust_ph':       'Tell me what you\'d like to adjust…',
+    // Layout
+    'layout.force':         '⋯ Force',
+    'layout.td':            '⊤ Tree (top-down)',
+    'layout.lr':            '⊢ Tree (left-right)',
+    'layout.radialout':     '◎ Radial',
+    // Lang
     'lang.label':           'Language',
   },
 
@@ -382,6 +403,17 @@ const TRANSLATIONS = {
     'adm.load_fail':        '読み込み失敗',
     'adm.add_fail':         '追加失敗',
     'adm.del_fail':         '削除失敗',
+    // Chat actions
+    'chat.undo':            '⎌ 一つ戻す',
+    'chat.undo_n':          '⎌ 一つ戻す ({n})',
+    'chat.export_prompt':   '📋 Promptとしてエクスポート',
+    'chat.adjust_ph':       '調整したい部分を教えてください…',
+    // Layout
+    'layout.force':         '⋯ 力学レイアウト',
+    'layout.td':            '⊤ ツリー（上から下）',
+    'layout.lr':            '⊢ ツリー（左から右）',
+    'layout.radialout':     '◎ 放射状',
+    // Lang
     'lang.label':           '言語',
   },
 };
@@ -569,7 +601,7 @@ async function startSession() {
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\\n\\n");
+      const parts = buffer.split("\n\n");
       buffer = parts.pop();   // 保留不完整的尾段
 
       for (const part of parts) {
@@ -585,7 +617,7 @@ async function startSession() {
           if (evt.session_id) sessionId = evt.session_id;  // 提早設定，讓 resource fetch 能立刻用
           document.getElementById("undo-btn").style.display = "block";
           document.getElementById("undo-btn").disabled = true;  // 第一輪還沒有快照
-          document.getElementById("undo-btn").textContent = "⎌ 撤回上一步";
+          document.getElementById("undo-btn").textContent = t('chat.undo');
           if (evt.llm) {
             const badge = document.getElementById("llm-badge");
             if (badge) badge.textContent = `✦ ${evt.llm}`;
@@ -651,6 +683,12 @@ async function startSession() {
           }, 100);
           // 每輪對話完成後，背景預先載入新增節點的 RAG 知識
           setTimeout(() => _prefetchImportantNodes(), 2500);
+
+        } else if (evt.type === "realtime_search") {
+          _showRealtimeBadge(evt.query);
+
+        } else if (evt.type === "realtime_done") {
+          _hideRealtimeBadge();
 
         } else if (evt.type === "debug") {
           _addDebugEntry(evt);
@@ -736,7 +774,7 @@ async function sendMessage() {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\\n\\n");
+        const parts = buffer.split("\n\n");
         buffer = parts.pop();
 
         for (const part of parts) {
@@ -766,12 +804,16 @@ async function sendMessage() {
               if (_undoBtn) { _undoBtn.disabled = false; _undoBtn.style.display = "block"; }
               if (evt.ready) {
                 planningDone = true;
-                document.getElementById("msg-input").placeholder = "說說你想調整的部分…";
+                document.getElementById("msg-input").placeholder = t('chat.adjust_ph');
                 document.getElementById("restart-btn").style.display = "block";
                 document.getElementById("export-prompt-btn").style.display = "block";
                 _showCompletionCard();
               }
             });
+          } else if (evt.type === "realtime_search") {
+            _showRealtimeBadge(evt.query);
+          } else if (evt.type === "realtime_done") {
+            _hideRealtimeBadge();
           } else if (evt.type === "debug") {
             _addDebugEntry(evt);
           }
@@ -2023,7 +2065,7 @@ async function undoLastStep() {
 
     // 更新按鈕狀態
     const remaining = data.snapshots_remaining || 0;
-    btn.textContent = remaining > 0 ? ("⎌ 撤回上一步 (" + remaining + ")") : "⎌ 撤回上一步";
+    btn.textContent = remaining > 0 ? t('chat.undo_n', {n: remaining}) : t('chat.undo');
     btn.disabled = remaining === 0;
   } catch (e) {
     alert("撤回失敗");
@@ -2432,6 +2474,28 @@ function _toggleDebug() {
   const isOpen = panel.classList.contains("open");
   toggle.textContent  = isOpen ? "🐛 hide" : "🐛 debug";
   if (hideBtn) hideBtn.title = isOpen ? "隱藏 debug" : "顯示 debug";
+}
+
+function _showRealtimeBadge(query) {
+  let badge = document.getElementById("realtime-badge");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.id = "realtime-badge";
+    badge.style.cssText = "display:flex;align-items:center;gap:6px;padding:6px 12px;margin:4px 12px;"
+      + "background:#0f172a;border:1px solid #1d4ed8;border-radius:20px;font-size:11px;color:#60a5fa;"
+      + "animation:pulse-badge 1.2s ease-in-out infinite;";
+    badge.innerHTML = '<span style="font-size:13px">🌐</span><span>Live searching…</span>';
+    const msgs = document.getElementById("messages");
+    if (msgs) msgs.appendChild(badge);
+  }
+  badge.style.display = "flex";
+  const msgs = document.getElementById("messages");
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
+}
+
+function _hideRealtimeBadge() {
+  const badge = document.getElementById("realtime-badge");
+  if (badge) badge.remove();
 }
 
 function _addDebugEntry(evt) {
@@ -2856,7 +2920,7 @@ async function kbStartCrawl() {
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      const parts = buf.split("\\n\\n");
+      const parts = buf.split("\n\n");
       buf = parts.pop();
       for (const part of parts) {
         if (!part.startsWith("data: ")) continue;
@@ -2916,6 +2980,18 @@ async function kbBrowse() {
   }
 }
 
+async function toggleLangFilter(lang, btn) {
+  btn.classList.toggle("active");
+  const active = [...document.querySelectorAll(".lang-filter-btn.active")].map(b => b.dataset.lang);
+  if (!sessionId) return;
+  try {
+    await fetch(`/api/sessions/${sessionId}/filter_langs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filter_langs: active }),
+    });
+  } catch (_) {}
+}
+
 async function kbAddURL() {
   const url  = document.getElementById("kb-url").value.trim();
   const name = document.getElementById("kb-url-name").value.trim();
@@ -2924,7 +3000,7 @@ async function kbAddURL() {
   try {
     const res  = await fetch("/api/knowledge/url", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, source: name }),
+      body: JSON.stringify({ url, source: name, session_id: sessionId || "" }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -2947,7 +3023,7 @@ async function kbAddText() {
   try {
     const res  = await fetch("/api/knowledge/text", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, source }),
+      body: JSON.stringify({ text, source, session_id: sessionId || "" }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -2975,6 +3051,7 @@ async function kbUploadPDF() {
   form.append("file", file);
   form.append("source_name", name);
   form.append("category", category);
+  form.append("session_id", sessionId || "");
 
   try {
     const res  = await fetch("/api/knowledge/pdf", { method: "POST", body: form });
@@ -3000,7 +3077,7 @@ async function kbAddJSONL() {
   try {
     const res  = await fetch("/api/knowledge/jsonl", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, source }),
+      body: JSON.stringify({ content, source, session_id: sessionId || "" }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -3120,7 +3197,7 @@ async function exportPrompt() {
     alert('連線錯誤');
   } finally {
     btn.disabled = false;
-    btn.textContent = '📋 匯出為 Prompt';
+    btn.textContent = t('chat.export_prompt');
   }
 }
 

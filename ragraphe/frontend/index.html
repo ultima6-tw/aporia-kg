@@ -36,14 +36,20 @@
       <button onclick="zoomOut()" title="縮小">－</button>
       <button id="layout-toggle-btn" onclick="openLayoutMenu(event)" title="切換佈局" style="font-size:11px;padding:2px 5px">⊞</button>
     </div>
+    <div id="lang-filter-bar">
+      <span style="font-size:10px;color:#64748b;margin-right:4px">Show:</span>
+      <button class="lang-filter-btn active" data-lang="en" onclick="toggleLangFilter('en',this)">EN</button>
+      <button class="lang-filter-btn active" data-lang="zh" onclick="toggleLangFilter('zh',this)">ZH</button>
+      <button class="lang-filter-btn active" data-lang="ja" onclick="toggleLangFilter('ja',this)">JA</button>
+    </div>
     <div id="layout-menu" style="
       display:none; position:fixed; z-index:8000;
       background:#0d1424; border:1px solid #334155; border-radius:8px;
       padding:4px; min-width:140px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
-      <div class="layout-opt" data-mode="force" onclick="setLayout('force')">⋯ 力導向</div>
-      <div class="layout-opt" data-mode="td"    onclick="setLayout('td')">⊤ 樹狀（由上而下）</div>
-      <div class="layout-opt" data-mode="lr"    onclick="setLayout('lr')">⊢ 樹狀（由左而右）</div>
-      <div class="layout-opt" data-mode="radialout" onclick="setLayout('radialout')">◎ 放射狀</div>
+      <div class="layout-opt" data-mode="force" data-i18n="layout.force" onclick="setLayout('force')">⋯ 力導向</div>
+      <div class="layout-opt" data-mode="td"    data-i18n="layout.td"    onclick="setLayout('td')">⊤ 樹狀（由上而下）</div>
+      <div class="layout-opt" data-mode="lr"    data-i18n="layout.lr"    onclick="setLayout('lr')">⊢ 樹狀（由左而右）</div>
+      <div class="layout-opt" data-mode="radialout" data-i18n="layout.radialout" onclick="setLayout('radialout')">◎ 放射狀</div>
     </div>
     <div id="hover-tooltip"></div>
     <div id="node-popup">

@@ -198,18 +198,25 @@ class KnowledgeCrawlRequest(BaseModel):
 
 
 class KnowledgeURLRequest(BaseModel):
-    url:    str
-    source: str = ""   # Display name; defaults to the URL
+    url:        str
+    source:     str = ""
+    session_id: str = ""
 
 
 class KnowledgeTextRequest(BaseModel):
-    text:   str
-    source: str = "手動輸入"
+    text:       str
+    source:     str = "手動輸入"
+    session_id: str = ""
 
 
 class KnowledgeJSONLRequest(BaseModel):
-    content: str        # JSONL text, one {"text":"...","source":"..."} per line
-    source:  str = "匯入"  # Used when a line has no source field
+    content:    str
+    source:     str = "匯入"
+    session_id: str = ""
+
+
+_LANG_TO_DB: dict[str, str] = {"en": "en", "zh-TW": "zh", "ja": "ja"}
+_ALL_FILTER_LANGS = ["en", "zh", "ja"]
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -236,7 +243,8 @@ def _cosine_dist(a: list, b: list) -> float:
 
 def _interpolate_bridge_rag(
     cluster_a_ids: list, cluster_b_ids: list,
-    embeddings: dict, n_probes: int = 3, n_results: int = 3
+    embeddings: dict, n_probes: int = 3, n_results: int = 3,
+    filter_langs: list[str] | None = None,
 ) -> list[dict]:
     """
     Centroid interpolation bridge discovery.
@@ -261,7 +269,7 @@ def _interpolate_bridge_rag(
     for t in ts:
         probe = ((1 - t) * centroid_a + t * centroid_b).tolist()
         try:
-            chunks = query_raw_chunks(probe, n=n_results)
+            chunks = query_raw_chunks(probe, n=n_results, filter_langs=filter_langs)
             for c in chunks:
                 key = c.get("source", "") + c.get("text", "")[:80]
                 if key not in seen_sources:
@@ -827,6 +835,26 @@ def _process_message(session_id: str, user_text: str):
     embeddings: dict = session["embeddings"]
     edge_set: set    = session["edge_set"]
     edges: list      = session["edges"]
+    topic: str       = session.get("topic", "default")
+
+    # ── Realtime web search (triggered by temporal keywords like "latest", "today", "now") ──────
+    realtime_context = ""
+    if needs_realtime(topic, user_text):
+        yield _sse({"type": "realtime_search", "query": user_text[:60]})
+        try:
+            from ddgs import DDGS as _DDGS
+            _rt_query = f"{user_text} {goal}"[:120]
+            with _DDGS() as _ddgs:
+                _rt_results = list(_ddgs.text(_rt_query, max_results=5))
+            realtime_context = "\n".join(
+                f"- {r.get('title', '')} ({r.get('href', '')[:60]}): {r.get('body', '')[:200]}"
+                for r in _rt_results if r.get("body")
+            )
+            yield _sse({"type": "realtime_done", "count": len(_rt_results)})
+            print(f"[realtime] {len(_rt_results)} results for: {_rt_query[:60]}", flush=True)
+        except Exception as _e:
+            print(f"[realtime] search failed: {_e}", flush=True)
+            yield _sse({"type": "realtime_done", "count": 0})
 
     # ── Step 4: Snapshot current state before processing (for undo), keep up to 5 rounds ──────
     import copy as _copy
@@ -887,14 +915,21 @@ def _process_message(session_id: str, user_text: str):
         _decision_reason: str | None = None
         _deferred_names:  list = []
         try:
+            _ce_prompt = _CHAT_EXTRACT_PROMPT.format(
+                reply_lang=reply_lang, node_lang=node_lang,
+                goal=goal, history=history_text,
+                message=user_text, existing_names=existing_names_json,
+                known_concepts_block=known_concepts_block,
+            )
+            if realtime_context:
+                _ce_prompt += (
+                    f"\n\nREAL-TIME WEB SEARCH RESULTS (fetched just now — use these for current facts):\n"
+                    f"{realtime_context}\n"
+                    f"Prioritize these results when answering questions about current prices, schedules, or recent events."
+                )
             raw = chat(
                 system=_CHAT_EXTRACT_SYSTEM,
-                messages=[{"role": "user", "content": _CHAT_EXTRACT_PROMPT.format(
-                    reply_lang=reply_lang, node_lang=node_lang,
-                    goal=goal, history=history_text,
-                    message=user_text, existing_names=existing_names_json,
-                    known_concepts_block=known_concepts_block,
-                )}],
+                messages=[{"role": "user", "content": _ce_prompt}],
             )
             mx = re.search(r'\{[\s\S]+\}', raw or "")
             if mx:
@@ -1014,7 +1049,8 @@ def _process_message(session_id: str, user_text: str):
         interp_chunks: list[dict] = []
         try:
             interp_chunks = _interpolate_bridge_rag(
-                best_ca, best_cb, snap_embs, n_probes=3, n_results=3
+                best_ca, best_cb, snap_embs, n_probes=3, n_results=3,
+                filter_langs=session.get("filter_langs", _ALL_FILTER_LANGS),
             )
             print(f"[P4] interp done: {_time.time()-_t0:.1f}s, "
                   f"chunks={len(interp_chunks)}, centroid_dist={best_dist:.3f}", flush=True)
@@ -1026,6 +1062,10 @@ def _process_message(session_id: str, user_text: str):
                 f"[{c.get('source_name') or c['source'][:40]}]\n{c['text'][:200]}"
                 for c in interp_chunks[:5]
             )
+
+        if realtime_context:
+            _rt_section = f"[LIVE WEB]\n{realtime_context[:600]}"
+            _rag_ctx = (_rt_section + "\n\n" + _rag_ctx) if _rag_ctx else _rt_section
 
         # ── 4. LLM: name bridge nodes ────────────────────────────────────
         # RAG-grounded when ChromaDB has data; general knowledge as fallback
@@ -1539,6 +1579,7 @@ def start(req: StartRequest):
         "topic":        _topic,   # detected from freshness.yaml for TTL-aware crawling
         "user_id":      req.user_id,
         "lang":         req.lang,
+        "filter_langs": _ALL_FILTER_LANGS[:],  # show all languages by default
         "created_at":   _dt.now().isoformat(),
         "messages":     [],
         "nodes":        {},      # id → {id, name, description, status, source, exclusive}
@@ -1898,6 +1939,17 @@ def undo_step(req: UndoRequest):
     }
 
 
+@app.post("/api/sessions/{session_id}/filter_langs")
+def set_filter_langs(session_id: str, body: dict):
+    """Update which content languages are visible in this session."""
+    data = sessions.get(session_id)
+    if not data:
+        return {"ok": False, "error": "Session not found"}
+    langs = [l for l in body.get("filter_langs", _ALL_FILTER_LANGS) if l in ("en", "zh", "ja")]
+    data["filter_langs"] = langs or _ALL_FILTER_LANGS[:]
+    return {"ok": True, "filter_langs": data["filter_langs"]}
+
+
 @app.delete("/api/sessions/{session_id}")
 def remove_session(session_id: str):
     """Delete the specified session."""
@@ -2070,9 +2122,11 @@ _KNOWN_GOAL_CITIES = [
 ]
 
 
+_LANG_TO_WIKI: dict[str, str] = {"en": "en", "zh-TW": "zh", "ja": "ja"}
+
 def _do_targeted_crawl(node_name: str, node_desc: str, goal_text: str,
                        goal_type: str, session_data: dict, node_id: str,
-                       topic: str = "default") -> None:
+                       topic: str = "default", lang: str = "en") -> None:
     """
     Background thread: targeted crawl for a single node.
     Queries using "node name + goal city" combination for better precision than generic crawl.
@@ -2106,14 +2160,15 @@ def _do_targeted_crawl(node_name: str, node_desc: str, goal_text: str,
             except Exception:
                 pass  # Fallback to original search_name
 
-        # Determine Wikipedia language from goal country (e.g. Japan → "ja")
+        # Determine Wikipedia language: country keyword wins, else fall back to session lang
         wiki_lang = next(
-            (lang for kw, lang in _COUNTRY_WIKI_LANG.items() if kw in goal_text),
-            "zh"
+            (wl for kw, wl in _COUNTRY_WIKI_LANG.items() if kw in goal_text),
+            _LANG_TO_WIKI.get(lang, "en")
         )
 
         pseudo_node = {"name": search_name, "description": node_desc}
-        crawl_node_smart(pseudo_node, goal_type=goal_type, verbose=True, wiki_lang=wiki_lang, topic=topic)
+        crawl_node_smart(pseudo_node, goal_type=goal_type, verbose=True,
+                         wiki_lang=wiki_lang, topic=topic)
         print(f"[crawl] targeted crawl done: {search_name} (wiki_lang={wiki_lang})", flush=True)
     except Exception as e:
         print(f"[crawl] targeted crawl error for {node_name}: {e}", flush=True)
@@ -2145,6 +2200,7 @@ def node_resources(req: NodeResourcesRequest):
 
     node_name = node.get("name", "")
     node_desc = node.get("description", "")
+    session_lang = data.get("lang", "en")
 
     # Build graph-aware context: use edge-connected nodes as the strongest context signal.
     # The graph already encodes what the user cares about — nodes directly linked to this one
@@ -2184,9 +2240,11 @@ def node_resources(req: NodeResourcesRequest):
     if not query_text:
         return {"resources": []}
 
+    filter_langs = data.get("filter_langs", _ALL_FILTER_LANGS)
+
     try:
         vec = embed(query_text[:500])
-        chunks = query_raw_chunks(vec, n=12)
+        chunks = query_raw_chunks(vec, n=12, filter_langs=filter_langs)
     except Exception:
         return {"resources": []}
 
@@ -2204,6 +2262,19 @@ def node_resources(req: NodeResourcesRequest):
         re.IGNORECASE
     )
 
+    _RE_CJK_ALL = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+
+    def _lang_matches(text: str) -> bool:
+        """Return True if text language is compatible with the session language."""
+        cjk_chars = len(_RE_CJK_ALL.findall(text))
+        cjk_ratio = cjk_chars / max(len(text), 1)
+        if session_lang == "en":
+            return cjk_ratio < 0.2   # reject predominantly CJK for English sessions
+        if session_lang == "ja":
+            jp_chars = len(re.findall(r"[\u3040-\u30ff]", text))
+            return jp_chars > 0 or cjk_ratio < 0.2  # accept Japanese kana or Latin
+        return True  # zh-TW: accept all
+
     def _snippet_quality(text: str) -> float:
         """0.0 (garbage) → 1.0 (high quality)"""
         if not text or len(text) < 40:
@@ -2219,11 +2290,16 @@ def node_resources(req: NodeResourcesRequest):
         nav_hits = len(_NAV_KEYWORDS.findall(text))
         if nav_hits >= 2:
             return 0.1
-        # CJK character ratio: travel knowledge typically > 30%
-        zh_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
-        zh_ratio = zh_chars / max(len(text), 1)
-        # Quality score: length + CJK ratio + no ads
-        score = min(len(text) / 200, 1.0) * 0.4 + zh_ratio * 0.4 + (0.2 if nav_hits == 0 else 0)
+        # Language-aware content ratio signal
+        cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+        cjk_ratio = cjk_chars / max(len(text), 1)
+        if session_lang == "en":
+            # For English sessions: reward Latin-heavy text
+            latin_ratio = len(re.findall(r"[a-zA-Z]", text)) / max(len(text), 1)
+            content_signal = latin_ratio
+        else:
+            content_signal = cjk_ratio
+        score = min(len(text) / 200, 1.0) * 0.4 + content_signal * 0.4 + (0.2 if nav_hits == 0 else 0)
         return round(score, 3)
 
     # Title quality filter: paragraphs matching these patterns are unsuitable as titles
@@ -2232,22 +2308,23 @@ def node_resources(req: NodeResourcesRequest):
     )
 
     def _extract_title(text: str) -> str:
-        """Extract the first meaningful sentence from a snippet as the title, filtering out price/ranking fragments."""
+        """Extract the first meaningful sentence from a snippet as the title."""
         lines = [l.strip() for l in text.split("\n") if len(l.strip()) >= 10]
         for line in lines:
-            # Skip ad/navigation lines
             if _NAV_KEYWORDS.search(line):
                 continue
-            # Skip lines containing price/ranking info (prone to truncated titles like "Tokyo daily NT$2")
             if _BAD_TITLE_RE.search(line):
                 continue
-            # Truncate at first period/comma
             cut = re.split(r"[。！？，,!?]", line)[0].strip()
-            # Title must be at least 8 chars and CJK ratio > 30% (exclude all-ASCII noise lines)
             if len(cut) >= 8:
-                zh_ratio = len(re.findall(r"[\u4e00-\u9fff]", cut)) / max(len(cut), 1)
-                if zh_ratio >= 0.25:
-                    return cut[:30]
+                cjk_ratio = len(re.findall(r"[\u4e00-\u9fff]", cut)) / max(len(cut), 1)
+                if session_lang == "en":
+                    # Accept lines that are mostly Latin (low CJK ratio)
+                    if cjk_ratio < 0.2:
+                        return cut[:50]
+                else:
+                    if cjk_ratio >= 0.25:
+                        return cut[:30]
         return ""
 
     def _domain_label(src: str) -> str:
@@ -2474,6 +2551,10 @@ def node_resources(req: NodeResourcesRequest):
         if not _goal_is_travel and _travel_score >= _thr:
             continue    # Non-travel goal + travel snippet → skip
 
+        # Language mismatch filter: skip chunks in the wrong language for this session
+        if not _lang_matches(text):
+            continue
+
         quality = _snippet_quality(text)
         # Node name relevance bonus (e.g. Kiyomizudera node: "清水寺" or "清水" in text → +0.15/+0.06)
         quality += _node_relevance_bonus(text, node_name)
@@ -2610,7 +2691,7 @@ def node_resources(req: NodeResourcesRequest):
             threading.Thread(
                 target=_do_targeted_crawl,
                 args=(node_name, node_desc, goal_text, goal_type, data, req.node_id),
-                kwargs={"topic": topic},
+                kwargs={"topic": topic, "lang": data.get("lang", "en")},
                 daemon=True,
             ).start()
             print(f"[crawl] triggered for node: {node_name!r}", flush=True)
@@ -2806,6 +2887,7 @@ async def knowledge_upload_pdf(
     file:        UploadFile = File(...),
     source_name: str        = Form(""),
     category:    str        = Form("concept"),
+    session_id:  str        = Form(""),
 ):
     """Upload PDF → parse → chunk + embed → raw_chunks; file stored in data/files/."""
     from ragraphe.core.crawler import parse_pdf, chunk_text, store_chunks

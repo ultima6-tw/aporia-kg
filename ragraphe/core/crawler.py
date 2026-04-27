@@ -40,6 +40,19 @@ CHUNK_OVERLAP = 80
 RAG_THRESHOLD = 0.6
 MIN_CHUNKS    = 3   # Minimum target chunk count; falls through to the next source tier if not met
 
+_RE_CJK  = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+_RE_KANA = re.compile(r"[\u3040-\u30ff]")
+
+def _detect_lang(text: str) -> str:
+    """Detect content language from text: 'ja', 'zh', or 'en'."""
+    cjk   = len(_RE_CJK.findall(text))
+    ratio = cjk / max(len(text), 1)
+    if ratio > 0.2:
+        kana = len(_RE_KANA.findall(text))
+        return "ja" if kana / max(cjk, 1) > 0.25 else "zh"
+    return "en"
+
+
 # Raw knowledge base (collection name is tied to embedding backend to avoid dimension conflicts)
 _CHUNK_COLLECTION = f"raw_chunks_{_LLM_BACKEND}"   # e.g. raw_chunks_gemini / raw_chunks_ollama
 raw_chunks = _chroma.get_or_create_collection(
@@ -200,8 +213,8 @@ def store_chunks(chunks: list[dict], category: str = "general",
                  ttl_days: int | None = None, topic: str = "default"):
     """
     chunks: list of {id, text, source}
+    Language is auto-detected from content and stored as lang_en/lang_zh/lang_ja boolean flags.
     category / ttl_days / topic determine expires_at stored in ChromaDB metadata.
-    topic enables per-topic TTL from freshness.yaml (e.g. finance.pricing = 1 day).
     """
     if not chunks:
         return
@@ -210,12 +223,18 @@ def store_chunks(chunks: list[dict], category: str = "general",
         ids        = [c["id"] for c in chunks],
         embeddings = [embed(c["text"]) for c in chunks],
         documents  = [c["text"] for c in chunks],
-        metadatas  = [{
-            "source":      c["source"],
-            "source_name": c.get("source_name", ""),
-            "category":    c.get("category", category),
-            "expires_at":  c.get("expires_at", expires_at),
-        } for c in chunks],
+        metadatas  = [
+            {
+                "source":      c["source"],
+                "source_name": c.get("source_name", ""),
+                "category":    c.get("category", category),
+                "expires_at":  c.get("expires_at", expires_at),
+                "lang_en":     (_dl := _detect_lang(c["text"])) == "en",
+                "lang_zh":     _dl == "zh",
+                "lang_ja":     _dl == "ja",
+            }
+            for c in chunks
+        ],
     )
     # Mark each source URL as crawled
     source_counts: dict[str, int] = {}
@@ -411,14 +430,30 @@ def crawl_node_smart(node: dict, goal_type: str = "general",
     return len(all_chunks)
 
 
-def query_raw_chunks(node_embedding: list[float], n: int = 5) -> list[dict]:
+_LANG_FLAG = {"en": "lang_en", "zh": "lang_zh", "ja": "lang_ja"}
+_ALL_LANGS  = set(_LANG_FLAG)
+
+def query_raw_chunks(node_embedding: list[float], n: int = 5,
+                     filter_langs: list[str] | None = None) -> list[dict]:
+    """
+    filter_langs: languages to include, e.g. ["en","zh"]. None or all-3 = no filter.
+    Old chunks without lang flags are always included (no flag = no restriction).
+    """
     if raw_chunks.count() == 0:
         return []
     now = datetime.now().isoformat()
-    results = raw_chunks.query(
-        query_embeddings=[node_embedding],
-        n_results=min(n * 2, raw_chunks.count())   # Fetch more than needed so after filtering we still have n results
-    )
+    active = [l for l in (filter_langs or []) if l in _LANG_FLAG]
+    query_kwargs: dict = {
+        "query_embeddings": [node_embedding],
+        "n_results": min(n * 2, raw_chunks.count()),
+    }
+    if active and set(active) != _ALL_LANGS:
+        flags = [_LANG_FLAG[l] for l in active]
+        query_kwargs["where"] = (
+            {flags[0]: {"$eq": True}} if len(flags) == 1
+            else {"$or": [{f: {"$eq": True}} for f in flags]}
+        )
+    results = raw_chunks.query(**query_kwargs)
     chunks = []
     for i, chunk_id in enumerate(results["ids"][0]):
         meta       = results["metadatas"][0][i]

@@ -682,3 +682,33 @@
   .nd-rag-source { font-size: 10px; color: #334155; margin-top: 4px;
                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nd-rag-loading { font-size: 11px; color: #334155; font-style: italic; padding: 4px 0; }
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* ── Lang filter bar ── */
+#lang-filter-bar {
+  position: fixed;
+  top: 12px; right: 12px;
+  display: flex; align-items: center; gap: 4px;
+  z-index: 100;
+  background: rgba(5,10,20,0.75);
+  border: 1px solid #1e3a5f;
+  border-radius: 20px;
+  padding: 3px 8px;
+  backdrop-filter: blur(6px);
+}
+.lang-filter-btn {
+  font-size: 10px; font-weight: 600;
+  padding: 2px 7px; border-radius: 10px;
+  border: 1px solid #1e3a5f;
+  background: transparent; color: #334155;
+  cursor: pointer; transition: all 0.15s;
+}
+.lang-filter-btn.active {
+  background: #1e3a5f; color: #93c5fd;
+  border-color: #2563eb;
+}
+.lang-filter-btn:hover { border-color: #2563eb; }
