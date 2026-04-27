@@ -78,12 +78,14 @@ User input
 
 | Component | Technology |
 |-----------|-----------|
-| LLM | Gemini 2.5 Flash (default) or Ollama |
-| Embeddings | Gemini embedding-2 (3072d) or nomic-embed-text (768d) |
+| LLM | Gemini 2.5 Flash (default) or Ollama (fully local) |
+| Embeddings | Gemini embedding-2 (3072d) or nomic-embed-text via Ollama (768d) |
 | Vector DB | ChromaDB (local) |
 | Relational DB | SQLite (default) or PostgreSQL |
 | Backend | FastAPI + SSE streaming |
 | Frontend | force-graph (canvas 2D), vanilla JS — no build step |
+
+**Designed to be lightweight.** The dual-LLM pipeline (ChatExtract + Planner) is optimized for minimal token usage — each conversation round makes exactly two LLM calls. With Ollama, the entire system runs locally with no API costs and no data leaving your machine, which matters for sensitive research materials.
 
 ---
 
