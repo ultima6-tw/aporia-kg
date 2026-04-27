@@ -392,17 +392,14 @@ const SUPPORTED_LANGS = ['zh-TW', 'en', 'ja'];
 function _detectLang() {
   const saved = localStorage.getItem('ragraphe_lang');
   if (saved && SUPPORTED_LANGS.includes(saved)) return saved;
-  const nav = navigator.language || '';
-  if (nav.startsWith('ja'))   return 'ja';
-  if (nav.startsWith('zh'))   return 'zh-TW';
   return 'en';
 }
 
 let currentLang = _detectLang();
 
 function t(key, params = {}) {
-  const dict = TRANSLATIONS[currentLang] || TRANSLATIONS['zh-TW'];
-  const str  = dict[key] ?? (TRANSLATIONS['zh-TW'][key] ?? key);
+  const dict = TRANSLATIONS[currentLang] || TRANSLATIONS['en'];
+  const str  = dict[key] ?? (TRANSLATIONS['en'][key] ?? key);
   return str.replace(/\\{(\\w+)\\}/g, (_, k) => params[k] !== undefined ? params[k] : `{${k}}`);
 }
 
