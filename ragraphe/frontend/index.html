@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Ragraphe</title>
+<script src="https://unpkg.com/force-graph@1"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Main App -->
+<div id="app">
+  <div id="graph-pane">
+    <div id="welcome-overlay">
+      <h1>Ragraphe</h1>
+      <p data-i18n="start.tagline">輸入目標，AI 幫你規劃達成路徑</p>
+      <div id="onboarding-card" style="display:none">
+        <ul class="ob-steps">
+          <li><span class="ob-step-num">1</span><span>在左下角輸入你的目標，例如「我想去日本旅行」或「學習機器學習」</span></li>
+          <li><span class="ob-step-num">2</span><span>AI 會建立知識圖，點擊節點可標記完成 ✅ 或跳過 ⏭</span></li>
+          <li><span class="ob-step-num">3</span><span>繼續對話，AI 會根據你的進度調整路徑，並補充衛星資源</span></li>
+        </ul>
+        <div class="ob-legend">
+          <div class="ob-dot"><span style="background:#3b82f6"></span>待完成</div>
+          <div class="ob-dot"><span style="background:#22c55e"></span>已完成</div>
+          <div class="ob-dot"><span style="background:#f59e0b"></span>AI 建議</div>
+          <div class="ob-dot"><span style="background:#6366f1"></span>資源</div>
+        </div>
+        <button id="ob-dismiss-btn" onclick="dismissOnboarding()">了解了，開始探索 →</button>
+      </div>
+    </div>
+    <div id="graph-canvas"></div>
+    <div id="zoom-controls">
+      <button onclick="zoomIn()" title="放大">＋</button>
+      <button onclick="zoomFit()" title="適應視窗">⊙</button>
+      <button onclick="zoomOut()" title="縮小">－</button>
+      <button id="layout-toggle-btn" onclick="openLayoutMenu(event)" title="切換佈局" style="font-size:11px;padding:2px 5px">⊞</button>
+    </div>
+    <div id="layout-menu" style="
+      display:none; position:fixed; z-index:8000;
+      background:#0d1424; border:1px solid #334155; border-radius:8px;
+      padding:4px; min-width:140px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+      <div class="layout-opt" data-mode="force" onclick="setLayout('force')">⋯ 力導向</div>
+      <div class="layout-opt" data-mode="td"    onclick="setLayout('td')">⊤ 樹狀（由上而下）</div>
+      <div class="layout-opt" data-mode="lr"    onclick="setLayout('lr')">⊢ 樹狀（由左而右）</div>
+      <div class="layout-opt" data-mode="radialout" onclick="setLayout('radialout')">◎ 放射狀</div>
+    </div>
+    <div id="hover-tooltip"></div>
+    <div id="node-popup">
+      <button class="np-close" onclick="closeNodePopup()">✕</button>
+      <div class="np-title" id="np-title"></div>
+      <span class="nd-badge" id="np-badge"></span>
+      <div class="np-desc" id="np-desc"></div>
+      <div id="np-preview" style="display:none;margin:6px 0;padding:6px 8px;
+        background:#060a14;border-left:2px solid #1e3a5f;border-radius:4px;
+        font-size:10px;color:#64748b;line-height:1.55;max-height:60px;overflow:hidden"></div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="np-done-btn" id="np-done-btn" onclick="toggleNodeDone()" style="
+          flex:1;padding:5px 0;border:none;border-radius:5px;font-size:11px;cursor:pointer;
+          background:#16a34a;color:#fff;transition:background 0.15s">✓ 標記完成</button>
+        <button class="np-skip-btn" id="np-skip-btn" onclick="skipCurrentNode()" style="flex:1">不需要</button>
+      </div>
+      <div id="np-feedback-row" style="display:none;margin-top:5px;display:flex;align-items:center;gap:4px">
+        <span style="font-size:9px;color:#475569;flex:1">AI 建議品質：</span>
+        <button id="np-fb-good" title="這個節點很好" onclick="submitNodeFeedback('good')" style="
+          border:1px solid #1e3a5f;background:none;border-radius:4px;padding:2px 6px;
+          font-size:11px;color:#64748b;cursor:pointer;transition:all 0.15s">👍</button>
+        <button id="np-fb-bad"  title="這個節點不相關或品質差" onclick="submitNodeFeedback('bad')" style="
+          border:1px solid #1e3a5f;background:none;border-radius:4px;padding:2px 6px;
+          font-size:11px;color:#64748b;cursor:pointer;transition:all 0.15s">👎</button>
+      </div>
+      <button id="np-explore-btn" onclick="askAboutNode()" style="
+        display:block;width:100%;margin-top:8px;padding:7px 0;
+        border:none;border-radius:5px;font-size:12px;cursor:pointer;
+        background:linear-gradient(135deg,#1d4ed8,#7c3aed);color:#fff;
+        font-weight:600;letter-spacing:0.3px;transition:opacity 0.15s"
+        onmouseover="if(!this.disabled)this.style.opacity='0.85'" onmouseout="if(!this.disabled)this.style.opacity='1'">
+        🔍 深入探索此主題
+      </button>
+    </div>
+  </div>
+  <div id="chat-pane">
+    <div id="chat-header">
+      <div id="chat-header-toolbar">
+        <button class="lang-btn active" data-lang="zh-TW" onclick="setLang('zh-TW')"
+          style="background:none;border:1px solid #1e293b;border-radius:4px;color:#475569;
+                 font-size:10px;padding:2px 6px;cursor:pointer;transition:all 0.15s">繁中</button>
+        <button class="lang-btn" data-lang="en" onclick="setLang('en')"
+          style="background:none;border:1px solid #1e293b;border-radius:4px;color:#475569;
+                 font-size:10px;padding:2px 6px;cursor:pointer;transition:all 0.15s">EN</button>
+        <button class="lang-btn" data-lang="ja" onclick="setLang('ja')"
+          style="background:none;border:1px solid #1e293b;border-radius:4px;color:#475569;
+                 font-size:10px;padding:2px 6px;cursor:pointer;transition:all 0.15s">日本語</button>
+        <button id="kb-btn" onclick="openKB()" title="知識庫">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+        </button>
+        <button id="admin-btn" onclick="openAdmin()" title="優先來源管理">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+        </button>
+        <button id="profile-btn" onclick="openProfile()" title="個人檔案">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+          </svg>
+        </button>
+        <button id="sessions-btn" onclick="openSessions()" title="歷史 Sessions"
+          style="background:none;border:1px solid #1e293b;border-radius:4px;color:#475569;
+                 padding:3px 6px;cursor:pointer;transition:all 0.15s;font-size:13px;line-height:1">
+          ⊞
+        </button>
+      </div>
+      <div id="chat-header-goal">
+        <span class="header-label" data-i18n="header.goal">探索</span>
+        <span id="goal-display"></span>
+        <span id="llm-badge" style="font-size:10px;color:#475569;flex-shrink:0"></span>
+      </div>
+    </div>
+    <div id="messages"></div>
+    <div id="node-detail-pane">
+      <div id="ndp-header">
+        <span class="nd-badge" id="ndp-badge"></span>
+        <span id="ndp-title"></span>
+        <button id="ndp-close" onclick="closeNodeDetailPane()">✕</button>
+      </div>
+      <div id="ndp-body"></div>
+      <button id="ndp-explore-btn" onclick="askAboutSatellite()" style="
+        display:none;margin:8px 12px 12px;padding:7px 0;
+        border:none;border-radius:5px;font-size:12px;cursor:pointer;
+        background:linear-gradient(135deg,#1d4ed8,#7c3aed);color:#fff;
+        font-weight:600;transition:opacity 0.15s"
+        onmouseover="if(!this.disabled)this.style.opacity='0.85'" onmouseout="if(!this.disabled)this.style.opacity='1'">
+        🔍 深入探索此主題
+      </button>
+    </div>
+    <button id="restart-btn" onclick="restartSession()" data-i18n="chat.restart">↩ 重新開始</button>
+    <button id="undo-btn" onclick="undoLastStep()">⎌ 撤回上一步</button>
+    <button id="export-prompt-btn" onclick="exportPrompt()">📋 匯出為 Prompt</button>
+    <div id="debug-panel">
+      <div id="debug-header">
+        <span>🐛 Debug</span>
+        <button id="debug-hide-btn" onclick="_toggleDebug()" title="隱藏">✕</button>
+      </div>
+      <div id="debug-body"></div>
+    </div>
+    <button id="debug-toggle" onclick="_toggleDebug()">🐛 debug</button>
+    <div id="input-area">
+      <input id="msg-input" data-i18n-ph="start.placeholder" placeholder="例如：我想去日本旅行"
+             onkeydown="if(event.key==='Enter' && !event.isComposing) sendMessage()" />
+      <button id="send-btn" onclick="sendMessage()" data-i18n="start.btn">開始探索 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Knowledge Base Panel -->
+<div id="kb-panel" onclick="if(event.target===this) closeKB()">
+  <div id="kb-inner">
+    <div id="kb-header">
+      <h2>知識庫</h2>
+      <div id="kb-header-right">
+        <span id="kb-stats">載入中...</span>
+        <button id="kb-close" onclick="closeKB()">✕</button>
+      </div>
+    </div>
+    <div id="kb-body">
+      <!-- 新增內容 -->
+      <div>
+        <div class="kb-section-title">新增內容</div>
+        <div class="kb-tabs" style="flex-wrap:wrap">
+          <button class="kb-tab active" onclick="switchKBTab('crawl', this)" data-i18n="kb.tab.crawl">主題爬取</button>
+          <button class="kb-tab" onclick="switchKBTab('url', this)" data-i18n="kb.tab.url">URL 爬取</button>
+          <button class="kb-tab" onclick="switchKBTab('text', this)" data-i18n="kb.tab.text">貼入文字</button>
+          <button class="kb-tab" onclick="switchKBTab('jsonl', this)" data-i18n="kb.tab.jsonl">JSONL 匯入</button>
+          <button class="kb-tab" onclick="switchKBTab('pdf', this)" data-i18n="kb.tab.pdf">PDF 上傳</button>
+          <button class="kb-tab" onclick="switchKBTab('browse', this)" data-i18n="kb.tab.browse">瀏覽資料</button>
+        </div>
+
+        <!-- Topic Crawl tab -->
+        <div id="kb-tab-crawl" class="kb-tab-content active">
+          <input id="kb-crawl-topic" class="kb-input" data-i18n-ph="kb.crawl.topic_ph"
+                 placeholder="主題名稱（例：金閣寺、Python 機器學習）"
+                 onkeydown="if(event.key==='Enter') kbStartCrawl()" />
+          <select id="kb-crawl-type" class="kb-input">
+            <option value="general" data-i18n="gtype.general">一般</option>
+            <option value="travel"  data-i18n="gtype.travel">旅行</option>
+            <option value="learning" data-i18n="gtype.learning">學習</option>
+            <option value="project" data-i18n="gtype.project">專案</option>
+            <option value="research" data-i18n="gtype.research">研究</option>
+          </select>
+          <button class="kb-btn" onclick="kbStartCrawl()" data-i18n="kb.crawl.btn">開始爬取</button>
+          <div id="kb-crawl-log"
+               style="margin-top:8px;font-size:11px;color:#475569;
+                      max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
+        </div>
+
+        <!-- URL tab -->
+        <div id="kb-tab-url" class="kb-tab-content">
+          <input id="kb-url" class="kb-input" placeholder="https://..." />
+          <input id="kb-url-name" class="kb-input" placeholder="來源名稱（選填）" />
+          <button class="kb-btn" onclick="kbAddURL()">抓取並加入知識庫</button>
+          <div id="kb-url-result"></div>
+        </div>
+
+        <!-- Text tab -->
+        <div id="kb-tab-text" class="kb-tab-content">
+          <textarea id="kb-text" class="kb-textarea" placeholder="貼入文字內容..."></textarea>
+          <input id="kb-text-source" class="kb-input" placeholder="來源名稱（例：論文名稱）" />
+          <button class="kb-btn" onclick="kbAddText()">加入知識庫</button>
+          <div id="kb-text-result"></div>
+        </div>
+
+        <!-- JSONL tab -->
+        <div id="kb-tab-jsonl" class="kb-tab-content">
+          <textarea id="kb-jsonl" class="kb-textarea"
+            placeholder='每行一個 JSON，格式：{"text":"內容","source":"來源"}&#10;{"text":"第二段","source":"paper.pdf"}'></textarea>
+          <input id="kb-jsonl-source" class="kb-input" placeholder="預設來源（若行內無 source 欄位）" />
+          <button class="kb-btn" onclick="kbAddJSONL()">匯入</button>
+          <div id="kb-jsonl-result"></div>
+        </div>
+
+        <!-- PDF tab -->
+        <div id="kb-tab-pdf" class="kb-tab-content">
+          <div style="font-size:11px;color:#475569;margin-bottom:4px">上傳 PDF，自動解析文字並加入知識庫</div>
+          <input id="kb-pdf-file" type="file" accept=".pdf" class="kb-input"
+                 style="padding:6px;cursor:pointer" />
+          <input id="kb-pdf-name" class="kb-input" placeholder="顯示名稱（選填，預設用檔名）" />
+          <select id="kb-pdf-category" class="kb-input">
+            <option value="concept">📖 概念（論文、教科書）</option>
+            <option value="resource">🔗 資源（參考手冊）</option>
+            <option value="how_to">🛠 操作（技術文件）</option>
+            <option value="event">📅 活動（會議資料）</option>
+          </select>
+          <button class="kb-btn" onclick="kbUploadPDF()">解析並加入知識庫</button>
+          <div id="kb-pdf-result"></div>
+        </div>
+      </div>
+
+      <!-- 已爬 URL -->
+      <div id="kb-recent-section">
+        <div class="kb-section-title" data-i18n="kb.recent">最近加入的來源</div>
+        <div id="kb-url-list"><div style="color:#334155;font-size:12px">載入中...</div></div>
+      </div>
+
+      <!-- 瀏覽資料（搜尋模式） -->
+      <div id="kb-browse-section" style="display:none;flex-direction:column;gap:8px">
+        <div class="src-form-row">
+          <input id="kb-browse-q" class="kb-input" data-i18n-ph="kb.browse.ph"
+                 placeholder="輸入關鍵詞搜尋知識庫..."
+                 onkeydown="if(event.key==='Enter') kbBrowse()" />
+          <button class="kb-btn" onclick="kbBrowse()"
+                  style="flex:0 0 60px;padding:8px 6px" data-i18n="kb.browse.btn">搜尋</button>
+        </div>
+        <div id="kb-browse-results"
+             style="display:flex;flex-direction:column;gap:6px;max-height:380px;overflow-y:auto"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Panel (Priority Sources) -->
+<div id="admin-panel" onclick="if(event.target===this) closeAdmin()">
+  <div id="admin-inner">
+    <div id="admin-header">
+      <h2>優先來源管理</h2>
+      <button id="admin-close" onclick="closeAdmin()">✕</button>
+    </div>
+    <div id="admin-body">
+      <!-- 新增表單 -->
+      <div>
+        <div class="pf-label" style="margin-bottom:10px">新增來源</div>
+        <div class="src-add-form">
+          <input id="src-name" class="src-form-input" placeholder="來源名稱（例：雄獅旅遊）" />
+          <input id="src-url" class="src-form-input" placeholder="URL（例：https://...）" />
+          <div class="src-form-row">
+            <input id="src-keywords" class="src-form-input" placeholder="關鍵詞（逗號分隔）" />
+            <input id="src-priority" class="src-form-input narrow" type="number" value="100" placeholder="優先度" />
+          </div>
+          <div class="src-form-row">
+            <select id="src-category" class="src-form-input">
+              <option value="general">📄 一般 (30天)</option>
+              <option value="concept">📖 概念 (永久)</option>
+              <option value="how_to">🛠 操作 (90天)</option>
+              <option value="resource">🔗 資源 (30天)</option>
+              <option value="event">📅 活動 (14天)</option>
+              <option value="schedule">🕐 時程 (7天)</option>
+              <option value="pricing">💰 費用 (7天)</option>
+            </select>
+            <input id="src-ttl" class="src-form-input narrow" type="number" placeholder="TTL(天)" title="覆蓋預設 TTL，0=永久" />
+          </div>
+          <input id="src-goal-types" class="src-form-input" placeholder="適用類型（留空=全部）：travel,learning,..." />
+          <input id="src-vendor-id" class="src-form-input" placeholder="廠商 ID（選填）" />
+          <button class="src-add-btn" onclick="addSource()">+ 新增來源</button>
+        </div>
+      </div>
+      <!-- 來源列表 -->
+      <div>
+        <div class="pf-label" style="margin-bottom:10px">現有來源</div>
+        <div id="src-list"><div style="color:#334155;font-size:12px">載入中...</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Profile Panel -->
+<div id="profile-panel" onclick="if(event.target===this) closeProfile()">
+  <div id="profile-inner">
+    <div id="profile-header">
+      <h2>個人檔案</h2>
+      <button id="profile-close" onclick="closeProfile()">✕</button>
+    </div>
+    <div id="profile-body">
+      <div>
+        <div class="pf-label">名稱</div>
+        <input id="pf-name" class="pf-input" placeholder="（選填）" />
+      </div>
+      <div>
+        <div class="pf-label">背景描述</div>
+        <textarea id="pf-bg" class="pf-textarea"
+          placeholder="例如：有 Python 基礎的資料科學學生，目標進入 ML 領域"></textarea>
+      </div>
+      <div>
+        <div class="pf-label">技能 / 已知領域（Enter 新增）</div>
+        <div class="pf-skill-row" onclick="document.getElementById('pf-skill-input').focus()">
+          <div class="pf-skills" id="pf-skills"></div>
+          <input id="pf-skill-input" class="pf-skill-input" placeholder="新增技能..."
+                 onkeydown="handleSkillInput(event)" />
+        </div>
+      </div>
+      <button id="profile-save-btn" onclick="saveProfile()">儲存</button>
+      <div>
+        <div class="pf-label">目標歷史</div>
+        <div id="pf-history"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+
+<!-- Sessions Panel -->
+<div id="sessions-panel" onclick="if(event.target===this) closeSessions()">
+  <div id="sessions-inner">
+    <div id="sessions-header">
+      <h2>歷史 Sessions</h2>
+      <button onclick="closeSessions()">✕</button>
+    </div>
+    <div id="sessions-list"></div>
+    <div id="sessions-footer">
+      <button id="sessions-new-btn" onclick="closeSessions(); restartSession()">＋ 開始新 Session</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export Prompt Modal -->
+<div id="export-modal">
+  <div id="export-modal-box">
+    <div id="export-modal-header">
+      <span>📋 匯出為 Prompt</span>
+      <button id="export-modal-close" onclick="_closeExportModal()">✕</button>
+    </div>
+    <div id="export-modal-body">
+      <textarea id="export-modal-text" readonly></textarea>
+    </div>
+    <div id="export-modal-footer">
+      <button id="export-copy-btn" onclick="_copyExportPrompt()">複製</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,470 @@
+# Knowledge Freshness Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# Each topic defines:
+#   detect_keywords : words matched against the user's goal to identify topic
+#                     (matched case-insensitively; first match wins)
+#   ttl             : time-to-live in days per content category before re-crawl
+#       event       : time-bound activities (festivals, workshops, launches)
+#       pricing     : costs, fees, ticket prices, subscriptions
+#       schedule    : timetables, opening hours, departure times
+#       how_to      : guides, tutorials, step-by-step instructions
+#       news        : recent developments, announcements
+#       concept     : stable knowledge, theory, history, culture
+#   realtime_triggers : keywords in the user message that bypass TTL and force
+#                       a live search regardless of cached content age
+#
+# The "default" topic is used when no other topic matches.
+# TTL = 0 means always re-crawl (effectively real-time).
+# ─────────────────────────────────────────────────────────────────────────────
+
+topics:
+
+  # ── 1. Travel ──────────────────────────────────────────────────────────────
+  travel:
+    name: Travel
+    detect_keywords:
+      # Chinese
+      - 旅遊, 旅行, 出遊, 自助旅行, 背包客, 觀光, 行程規劃, 景點, 出國, 機票, 簽證
+      # English
+      - travel, trip, vacation, itinerary, backpacking, sightseeing, tourism, flight, visa
+      # Japanese
+      - 旅行, 観光, 旅, バックパッカー, 海外旅行
+    ttl:
+      event:    3      # Festivals and seasonal activities change frequently
+      pricing:  7      # Airfare and hotel rates shift week to week
+      schedule: 14     # Transport timetables, ferry / bus schedules
+      how_to:   60     # Travel guides and tips are fairly stable
+      news:     3      # Travel advisories, entry requirements
+      concept:  365    # Culture, history, geography — rarely changes
+    realtime_triggers:
+      - 今天, 今年, 現在, 最新, 最近, 這週, 這個月
+      - today, current, now, latest, this week, this month, 2025, 2026
+
+  # ── 2. Food & Dining ───────────────────────────────────────────────────────
+  food:
+    name: Food & Dining
+    detect_keywords:
+      - 美食, 餐廳, 料理, 食譜, 咖啡廳, 小吃, 烹飪, 飲食, 開咖啡廳, 餐飲業
+      - food, restaurant, recipe, cooking, cafe, cuisine, dining, bakery
+      - 料理, レストラン, カフェ, 食べ物, グルメ
+    ttl:
+      event:    3      # Pop-up restaurants, limited menus, seasonal specials
+      pricing:  30     # Menu prices change with ingredients / season
+      schedule: 7      # Opening hours, reservation availability
+      how_to:   180    # Recipes and cooking techniques are stable
+      news:     7      # Food trend articles
+      concept:  365    # Cuisine culture, history, regional traditions
+    realtime_triggers:
+      - 現在有開, 今天, 今天有, 最近, 新開, 期間限定
+      - open now, today, new opening, limited time, currently
+
+  # ── 3. Technology & Programming ────────────────────────────────────────────
+  technology:
+    name: Technology & Programming
+    detect_keywords:
+      - 程式, 程式設計, 軟體, 開發, coding, 工程師, 演算法, 資料庫, 機器學習, AI, 深度學習
+      - programming, software, development, engineering, algorithm, machine learning, AI, deep learning
+      - プログラミング, ソフトウェア, 開発, エンジニア, 機械学習
+    ttl:
+      event:    7      # Tech conferences, product launches, release dates
+      pricing:  30     # SaaS pricing, cloud costs — change quarterly
+      schedule: 14     # Beta access windows, course enrollment periods
+      how_to:   60     # Tutorials age as libraries update
+      news:     3      # Framework releases, security patches
+      concept:  365    # Fundamentals (algorithms, data structures) are timeless
+    realtime_triggers:
+      - 最新版, 剛發布, 最新, 今年, 現在
+      - latest version, just released, current, now, 2025, 2026
+
+  # ── 4. Health & Medical ────────────────────────────────────────────────────
+  health:
+    name: Health & Medical
+    detect_keywords:
+      - 健康, 醫療, 疾病, 症狀, 藥物, 手術, 預防, 保健, 心理健康, 運動健康
+      - health, medical, disease, symptoms, medication, treatment, wellness, mental health
+      - 健康, 医療, 病気, 症状, 薬, 治療
+    ttl:
+      event:    1      # Health alerts, outbreak updates — critical to be fresh
+      pricing:  30     # Medical procedure costs, insurance premiums
+      schedule: 7      # Clinic hours, appointment availability
+      how_to:   90     # Medical procedures and treatment guides
+      news:     3      # Research findings, drug approvals
+      concept:  180    # Medical knowledge evolves; refresh semi-annually
+    realtime_triggers:
+      - 最新研究, 最新, 現在, 今年, 爆發, 疫情
+      - latest research, outbreak, current, now, new study, 2025, 2026
+
+  # ── 5. Finance & Investment ────────────────────────────────────────────────
+  finance:
+    name: Finance & Investment
+    detect_keywords:
+      - 投資, 股票, 基金, 理財, 財務, 加密貨幣, 退休規劃, 保險, 房地產
+      - investment, stock, fund, finance, crypto, retirement, insurance, real estate, portfolio
+      - 投資, 株, ファンド, 金融, 仮想通貨, 保険
+    ttl:
+      event:    1      # Earnings reports, rate decisions — same-day relevance
+      pricing:  1      # Market prices are intraday; anything older is stale
+      schedule: 3      # Trading hours, IPO dates
+      how_to:   30     # Investment strategies shift with market conditions
+      news:     1      # Financial news degrades within hours
+      concept:  180    # Financial theory and tax principles are more stable
+    realtime_triggers:
+      - 現在, 今天, 目前, 最新, 今年, 利率, 股價
+      - now, today, current price, latest, interest rate, market open
+
+  # ── 6. Events & Entertainment ──────────────────────────────────────────────
+  entertainment:
+    name: Events & Entertainment
+    detect_keywords:
+      - 演唱會, 展覽, 電影, 音樂, 表演, 節慶, 遊樂園, 博覽會, 演出, 票
+      - concert, exhibition, movie, music, performance, festival, theme park, show, ticket
+      - コンサート, 展覧会, 映画, 音楽, 公演, チケット
+    ttl:
+      event:    1      # Shows sell out and get cancelled — must be live
+      pricing:  3      # Ticket prices change with demand and availability
+      schedule: 1      # Show times and venue hours shift frequently
+      how_to:   30     # Booking guides are fairly stable
+      news:     3      # Lineup announcements, cancellations
+      concept:  365    # Artist background, genre history
+    realtime_triggers:
+      - 還有票, 售完, 今天, 明天, 本週, 剩幾張
+      - tickets available, sold out, today, tomorrow, this weekend, on sale now
+
+  # ── 7. Sports & Fitness ────────────────────────────────────────────────────
+  sports:
+    name: Sports & Fitness
+    detect_keywords:
+      - 運動, 健身, 跑步, 游泳, 重訓, 足球, 籃球, 棒球, 馬拉松, 訓練計畫
+      - sports, fitness, running, swimming, workout, football, basketball, marathon, training
+      - スポーツ, フィットネス, ランニング, トレーニング, マラソン
+    ttl:
+      event:    1      # Match results, competition schedules
+      pricing:  30     # Gym memberships, equipment prices
+      schedule: 7      # Training class schedules, race calendars
+      how_to:   90     # Training guides and techniques are stable
+      news:     3      # Transfer news, injury reports
+      concept:  365    # Rules of sports, training theory
+    realtime_triggers:
+      - 比賽結果, 今天, 本週, 最新, 成績, 排名
+      - match result, today, this week, latest standings, live score
+
+  # ── 8. Academic & Research ─────────────────────────────────────────────────
+  academic:
+    name: Academic & Research
+    detect_keywords:
+      - 學術, 研究, 論文, 期刊, 實驗, 研究所, 博士, 碩士, 文獻回顧, 投稿
+      - academic, research, paper, journal, experiment, PhD, thesis, literature review, publication
+      - 学術, 研究, 論文, 実験, 博士, 投稿
+    ttl:
+      event:    7      # Conference submission deadlines, seminar schedules
+      pricing:  60     # Journal access fees, conference registration
+      schedule: 14     # Semester calendars, application deadlines
+      how_to:   180    # Research methodology is quite stable
+      news:     14     # New paper publications, grant announcements
+      concept:  365    # Established theory — very slow to change
+    realtime_triggers:
+      - 最新論文, 剛發表, deadline, 截止日, 今年
+      - latest paper, just published, submission deadline, new findings, 2025, 2026
+
+  # ── 9. Business & Startup ──────────────────────────────────────────────────
+  business:
+    name: Business & Startup
+    detect_keywords:
+      - 創業, 新創, 商業計畫, 商業模式, 募資, 行銷, 品牌, 電商, 產品上線
+      - startup, business plan, business model, fundraising, marketing, branding, ecommerce, launch
+      - スタートアップ, ビジネス, 起業, マーケティング, ブランディング
+    ttl:
+      event:    3      # Funding rounds, product launches, pivots
+      pricing:  30     # Tool / service pricing, ad costs
+      schedule: 14     # Accelerator cohort timelines, pitch event dates
+      how_to:   90     # Business guides and frameworks
+      news:     3      # Industry moves, competitor updates
+      concept:  365    # Business theory (lean startup, OKRs) is stable
+    realtime_triggers:
+      - 剛融資, 最新, 現在, 市場情況, 競爭對手
+      - just raised, latest, current market, competitor news, 2025, 2026
+
+  # ── 10. Learning & Education ───────────────────────────────────────────────
+  learning:
+    name: Learning & Education
+    detect_keywords:
+      - 學習, 學英文, 考試, 考證照, 線上課程, 自學, 語言學習, 補習, 教育
+      - learning, study, exam, certification, online course, self-study, language learning, education
+      - 学習, 勉強, 試験, 資格, オンラインコース, 語学
+    ttl:
+      event:    7      # Course enrollment windows, exam registration dates
+      pricing:  30     # Course fees, tutoring rates
+      schedule: 14     # Exam dates, course start dates
+      how_to:   90     # Study guides and learning strategies
+      news:     14     # New course releases, curriculum updates
+      concept:  365    # Subject knowledge — stable by nature
+    realtime_triggers:
+      - 報名截止, 考試日期, 最新考題, 現在可以報名
+      - enrollment deadline, exam date, registration open, latest syllabus
+
+  # ── 11. Outdoor & Hiking ──────────────────────────────────────────────────
+  outdoor:
+    name: Outdoor & Hiking
+    detect_keywords:
+      - 登山, 爬山, 爬富士山, 健行, 縱走, 百岳, 攀岩, 露營, 野外求生, 背包健行, 山屋, 爬
+      - hiking, trekking, climbing, mountaineering, camping, backpacking, trail, summit
+      - 登山, ハイキング, トレッキング, キャンプ, 山登り, 縦走
+    ttl:
+      event:    7      # Trail closures, permit lotteries, guided tours
+      pricing:  14     # Permit fees, campsite booking costs
+      schedule: 7      # Trail opening / closing seasons, mountain hut availability
+      how_to:   90     # Gear lists, training plans, route guides
+      news:     7      # Rescue news, weather advisories, trail damage
+      concept:  365    # Mountain geography, flora/fauna, safety principles
+    realtime_triggers:
+      - 今天天氣, 目前狀況, 開放了嗎, 最新, 現在可以
+      - current conditions, open now, trail status, weather today, permit available
+
+  # ── 12. Career & Job Search ────────────────────────────────────────────────
+  career:
+    name: Career & Job Search
+    detect_keywords:
+      - 求職, 找工作, 面試, 履歷, 職涯, 升職, 轉職, 薪資談判, 職場, 跳槽
+      - job search, career, resume, interview, promotion, salary negotiation, workplace
+      - 就職活動, キャリア, 転職, 面接, 履歴書, 昇進
+    ttl:
+      event:    7      # Job fair dates, application deadlines
+      pricing:  30     # Salary benchmarks shift with market conditions
+      schedule: 14     # Interview schedules, hiring season windows
+      how_to:   60     # Resume writing, interview prep guides
+      news:     7      # Hiring freezes, industry layoffs, job market reports
+      concept:  180    # Career theory, professional development principles
+    realtime_triggers:
+      - 現在缺人, 正在招聘, 最新職缺, 薪資行情
+      - hiring now, current openings, salary range 2025, job market now
+
+  # ── 13. Creative Arts & Design ─────────────────────────────────────────────
+  creative:
+    name: Creative Arts & Design
+    detect_keywords:
+      - 設計, 插畫, 繪畫, 寫作, 創作, 音樂創作, 攝影, 影片製作, 動畫, 平面設計
+      - design, illustration, painting, writing, creative, music production, photography, animation
+      - デザイン, イラスト, 絵画, 写真, 音楽制作, 映像制作
+    ttl:
+      event:    7      # Art exhibitions, design competitions, submission deadlines
+      pricing:  30     # Software subscriptions (Adobe, Figma), course fees
+      schedule: 14     # Workshop enrollment windows, exhibition dates
+      how_to:   120    # Design tutorials and creative techniques
+      news:     14     # New tool releases, design trend articles
+      concept:  365    # Art history, design principles, music theory
+    realtime_triggers:
+      - 最新版, 剛出的, 現在流行, 今年趨勢
+      - latest version, trending now, new release, 2025 trends
+
+  # ── 14. DIY & Maker / Hardware ─────────────────────────────────────────────
+  diy:
+    name: DIY & Maker / Hardware
+    detect_keywords:
+      - DIY, 自製, 電路, 焊接, 3D列印, Arduino, Raspberry Pi, FPGA, 嵌入式, 硬體
+      - DIY, electronics, circuit, soldering, 3D printing, embedded, microcontroller, hardware
+      - 電子工作, はんだ付け, 3Dプリンタ, マイコン, 自作
+    ttl:
+      event:    14     # Maker Faire dates, component sale events
+      pricing:  14     # Component prices fluctuate, especially chips
+      schedule: 30     # Workshop / course enrollment
+      how_to:   120    # Build guides and schematics are fairly stable
+      news:     14     # New chip releases, supply chain news
+      concept:  365    # Electronics theory, physics principles
+    realtime_triggers:
+      - 現在有貨, 缺貨, 最新版, 剛發布
+      - in stock, out of stock, latest version, new chip, just released
+
+  # ── 15. Parenting & Child Development ─────────────────────────────────────
+  parenting:
+    name: Parenting & Child Development
+    detect_keywords:
+      - 育兒, 親子, 嬰兒, 幼兒, 兒童教育, 母乳, 副食品, 早期教育, 親子活動
+      - parenting, child development, baby, toddler, infant, early education, childcare
+      - 育児, 子育て, 赤ちゃん, 幼児, 子どもの教育
+    ttl:
+      event:    7      # Parenting workshops, school enrollment periods
+      pricing:  30     # Childcare costs, school fees
+      schedule: 14     # School calendars, pediatric clinic hours
+      how_to:   90     # Baby care guides, development milestone guides
+      news:     14     # Health advisories, product recalls
+      concept:  365    # Child psychology theory, developmental stages
+    realtime_triggers:
+      - 現在建議, 最新研究, 最新指引, 今年
+      - current guidelines, latest research, new recommendation, 2025
+
+  # ── 16. Environment & Sustainability ──────────────────────────────────────
+  environment:
+    name: Environment & Sustainability
+    detect_keywords:
+      - 環保, 永續, 氣候變遷, 碳排放, 再生能源, 回收, 綠能, 節能, 生態
+      - environment, sustainability, climate change, carbon, renewable energy, recycling, green
+      - 環境, 持続可能, 気候変動, 再生可能エネルギー, リサイクル
+    ttl:
+      event:    7      # Climate conferences, environmental campaigns
+      pricing:  30     # Carbon credit prices, energy tariffs
+      schedule: 14     # Policy implementation dates
+      how_to:   90     # Guides for reducing carbon footprint
+      news:     3      # Climate reports, policy announcements
+      concept:  180    # Climate science evolves; refresh semi-annually
+    realtime_triggers:
+      - 最新報告, 現在, 最新政策, 今年目標
+      - latest report, current policy, new target, IPCC 2025
+
+  # ── 17. Law & Legal ────────────────────────────────────────────────────────
+  law:
+    name: Law & Legal
+    detect_keywords:
+      - 法律, 法規, 合約, 訴訟, 智慧財產權, 著作權, 勞動法, 公司法, 法院, 仲裁
+      - law, legal, contract, lawsuit, intellectual property, copyright, labor law, court
+      - 法律, 契約, 訴訟, 著作権, 労働法, 裁判
+    ttl:
+      event:    14     # Court hearing dates, legislative sessions
+      pricing:  30     # Legal fee benchmarks
+      schedule: 30     # Court filing deadlines
+      how_to:   60     # Legal procedure guides — change with legislation
+      news:     7      # New laws, court rulings
+      concept:  180    # Legal principles; update when major rulings happen
+    realtime_triggers:
+      - 最新判決, 新法規, 今年修法, 現行法律
+      - latest ruling, new regulation, current law, amended 2025
+
+  # ── 18. History & Culture ──────────────────────────────────────────────────
+  history:
+    name: History & Culture
+    detect_keywords:
+      - 歷史, 文化, 文明, 考古, 古代, 傳統文化, 民俗, 博物館, 文物, 朝代
+      - history, culture, civilization, archaeology, ancient, tradition, museum, artifact, dynasty
+      - 歴史, 文化, 文明, 考古学, 伝統, 博物館, 遺跡
+    ttl:
+      event:    7      # Museum exhibitions, historical commemorations
+      pricing:  30     # Museum admission fees
+      schedule: 14     # Exhibition opening dates
+      how_to:   365    # Historical research methods — very stable
+      news:     30     # New archaeological discoveries
+      concept:  0      # Historical facts never expire
+    realtime_triggers:
+      - 新發現, 最新出土, 現在展覽
+      - new discovery, recently excavated, current exhibition
+
+  # ── 19. Natural Science ────────────────────────────────────────────────────
+  science:
+    name: Natural Science
+    detect_keywords:
+      - 物理, 化學, 生物, 天文, 地質, 量子, 基因, 演化, 自然科學, 科學實驗
+      - physics, chemistry, biology, astronomy, geology, quantum, genetics, evolution, science
+      - 物理, 化学, 生物学, 天文学, 量子力学, 遺伝学
+    ttl:
+      event:    14     # Science conferences, eclipse dates, meteor showers
+      pricing:  60     # Lab equipment, journal access
+      schedule: 30     # Academic semester calendars
+      how_to:   180    # Lab procedures and experimental methods
+      news:     14     # New research findings, journal publications
+      concept:  0      # Established science — never expires
+    realtime_triggers:
+      - 最新研究, 剛發表, 今年諾貝爾, 最新數據
+      - latest research, just published, new paper, 2025 findings
+
+  # ── 20. Psychology & Mental Health ────────────────────────────────────────
+  psychology:
+    name: Psychology & Mental Health
+    detect_keywords:
+      - 心理, 心理健康, 焦慮, 憂鬱, 壓力管理, 冥想, 正念, 心理諮商, 情緒管理
+      - psychology, mental health, anxiety, depression, stress, meditation, mindfulness, therapy
+      - 心理学, メンタルヘルス, 不安, うつ, ストレス, 瞑想, カウンセリング
+    ttl:
+      event:    14     # Therapy workshops, mental health awareness campaigns
+      pricing:  30     # Therapy session rates, app subscription costs
+      schedule: 14     # Clinic availability, support group schedules
+      how_to:   90     # Coping techniques and therapy approaches
+      news:     14     # New clinical guidelines, research findings
+      concept:  180    # Psychological theory; update semi-annually
+    realtime_triggers:
+      - 最新研究, 現在如何, 有效方法
+      - latest study, current treatment, evidence-based 2025
+
+  # ── 21. Philosophy & Critical Thinking ────────────────────────────────────
+  philosophy:
+    name: Philosophy & Critical Thinking
+    detect_keywords:
+      - 哲學, 倫理學, 邏輯, 批判思維, 形而上學, 認識論, 道德哲學, 存在主義
+      - philosophy, ethics, logic, critical thinking, metaphysics, epistemology, moral philosophy
+      - 哲学, 倫理学, 論理学, 批判的思考, 形而上学
+    ttl:
+      event:    30     # Philosophy conferences, public lectures
+      pricing:  60     # Course fees, book prices
+      schedule: 30     # Lecture series schedules
+      how_to:   365    # Philosophical reasoning methods — timeless
+      news:     30     # New academic publications
+      concept:  0      # Philosophical ideas don't expire
+    realtime_triggers:
+      - 最新著作, 現代觀點, 今年出版
+      - new book, modern perspective, recently published
+
+  # ── 22. Language Learning ──────────────────────────────────────────────────
+  language:
+    name: Language Learning
+    detect_keywords:
+      - 學英文, 學日文, 學韓文, 學中文, 學語言, 語言學習, 口說練習, 單字, 文法
+      - learn English, learn Japanese, learn Korean, language learning, speaking practice, grammar
+      - 英語学習, 日本語学習, 語学, スピーキング, 文法, 単語
+    ttl:
+      event:    7      # Language exam registration deadlines (TOEIC, JLPT)
+      pricing:  30     # Course and tutoring fees
+      schedule: 14     # Exam dates, course start dates
+      how_to:   90     # Study methods and grammar guides
+      news:     30     # New app releases, curriculum updates
+      concept:  365    # Grammar rules and vocabulary — very stable
+    realtime_triggers:
+      - 考試日期, 報名截止, 最新考題, 現在可以考
+      - exam date, registration deadline, test schedule, new JLPT
+
+  # ── 23. Cooking & Culinary Arts ────────────────────────────────────────────
+  cooking:
+    name: Cooking & Culinary Arts
+    detect_keywords:
+      - 料理, 烹飪, 食譜, 烘焙, 甜點, 咖啡, 調酒, 廚藝, 刀工, 醬料
+      - cooking, culinary, recipe, baking, dessert, coffee, cocktail, knife skills, sauce
+      - 料理, 調理, レシピ, ベーキング, お菓子作り, バリスタ
+    ttl:
+      event:    3      # Seasonal ingredients, limited-edition items, pop-up dinners
+      pricing:  14     # Ingredient prices fluctuate with seasons
+      schedule: 7      # Cooking class schedules
+      how_to:   180    # Recipes and techniques are stable
+      news:     14     # New restaurant openings, culinary trends
+      concept:  365    # Food science and culinary theory
+    realtime_triggers:
+      - 現在當季, 今天特價, 最新菜單, 期間限定
+      - in season now, limited time menu, today's special
+
+  # ── 24. Real Estate & Housing ──────────────────────────────────────────────
+  real_estate:
+    name: Real Estate & Housing
+    detect_keywords:
+      - 買房, 租房, 房地產, 房價, 貸款, 裝潢, 室內設計, 搬家, 房仲, 不動產
+      - real estate, buy house, rent apartment, property, mortgage, interior design, moving
+      - 不動産, 賃貸, 購入, 住宅, ローン, 内装, 引越し
+    ttl:
+      event:    7      # Open house events, auction dates
+      pricing:  7      # Property prices and rent change monthly
+      schedule: 14     # Mortgage rate review dates, moving company availability
+      how_to:   60     # Buying/renting process guides
+      news:     7      # Market reports, new housing policies
+      concept:  180    # Real estate theory and valuation principles
+    realtime_triggers:
+      - 現在行情, 最新房價, 目前利率, 今年趨勢
+      - current market, latest price, interest rate now, 2025 housing market
+
+  # ── Default (fallback for unmatched goals) ─────────────────────────────────
+  default:
+    name: General
+    detect_keywords: []    # Matches everything not caught above
+    ttl:
+      event:    7
+      pricing:  30
+      schedule: 14
+      how_to:   90
+      news:     7
+      concept:  365
+    realtime_triggers:
+      - 最新, 現在, 今天, 剛剛
+      - latest, now, today, just announced

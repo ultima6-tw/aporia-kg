@@ -32,7 +32,7 @@ from ragraphe.db.store import (
     get_node, upsert_node, get_matching_sources, _chroma,
     is_url_cached, mark_url_crawled,
 )
-from ragraphe.core.category import infer_category, CATEGORY_TTL, TIME_SENSITIVE
+from ragraphe.core.category import infer_category, CATEGORY_TTL, TIME_SENSITIVE, get_ttl as _get_category_ttl
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Ragraphe/0.1)"}
 CHUNK_SIZE    = 400
@@ -154,8 +154,9 @@ def chunk_text(text: str, source_url: str) -> list[dict]:
     return chunks
 
 
-def _compute_expires(category: str, ttl_days: int | None) -> str | None:
-    days = ttl_days if ttl_days is not None else CATEGORY_TTL.get(category, 30)
+def _compute_expires(category: str, ttl_days: int | None, topic: str = "default") -> str | None:
+    # Explicit ttl_days takes priority; otherwise use topic-aware TTL from freshness config
+    days = ttl_days if ttl_days is not None else _get_category_ttl(category, topic)
     if days <= 0:
         return None
     return (datetime.now() + timedelta(days=days)).isoformat()
@@ -195,14 +196,16 @@ def list_chunk_sources() -> list[dict]:
         return []
 
 
-def store_chunks(chunks: list[dict], category: str = "general", ttl_days: int | None = None):
+def store_chunks(chunks: list[dict], category: str = "general",
+                 ttl_days: int | None = None, topic: str = "default"):
     """
     chunks: list of {id, text, source}
-    category / ttl_days determine expires_at, which is stored in ChromaDB metadata.
+    category / ttl_days / topic determine expires_at stored in ChromaDB metadata.
+    topic enables per-topic TTL from freshness.yaml (e.g. finance.pricing = 1 day).
     """
     if not chunks:
         return
-    expires_at = _compute_expires(category, ttl_days) or ""
+    expires_at = _compute_expires(category, ttl_days, topic) or ""
     raw_chunks.upsert(
         ids        = [c["id"] for c in chunks],
         embeddings = [embed(c["text"]) for c in chunks],
@@ -327,11 +330,12 @@ def generate_queries(node_name: str, goal_type: str = "general") -> list[str]:
 
 # ── Main Pipeline ──────────────────────────────────────────────────────────────────
 
-def crawl_node_smart_stream(node: dict, goal_type: str = "general", wiki_lang: str = "zh"):
+def crawl_node_smart_stream(node: dict, goal_type: str = "general",
+                            wiki_lang: str = "zh", topic: str = "default"):
     """
     Smart crawl generator: priority_sources → Wikipedia → DuckDuckGo.
-    wiki_lang: Wikipedia language to search first (e.g. "ja" for Japan goals, "ko" for Korea).
-               Falls back to "en" if the specified language has no results.
+    topic: key from freshness.yaml — determines per-category TTL for stored chunks.
+    wiki_lang: Wikipedia language (e.g. "ja" for Japan goals).
     yield ("progress", text) | ("done", chunk_count)
     """
     name = node.get("name", "")
@@ -352,23 +356,23 @@ def crawl_node_smart_stream(node: dict, goal_type: str = "general", wiki_lang: s
                 cat    = s.get("category", "general")
                 ttl    = s.get("ttl_days", None)
                 chunks = chunk_text(text, s["url"])
-                store_chunks(chunks, category=cat, ttl_days=ttl)
+                store_chunks(chunks, category=cat, ttl_days=ttl, topic=topic)
                 all_chunks.extend(chunks)
                 yield ("progress", f"✓ {s['name']}: {len(chunks)} chunks")
 
-    # 2. Wikipedia (use wiki_lang for geo-specific goals)
+    # 2. Wikipedia — conceptual knowledge, TTL driven by topic config
     if len(all_chunks) < MIN_CHUNKS:
         query = name if name else desc[:30]
         yield ("progress", f"searching Wikipedia ({wiki_lang}): {query}...")
         wiki_chunks = fetch_wikipedia(query, lang=wiki_lang)
         if wiki_chunks:
-            store_chunks(wiki_chunks, category="concept", ttl_days=0)
+            store_chunks(wiki_chunks, category="concept", topic=topic)
             all_chunks.extend(wiki_chunks)
             yield ("progress", f"✓ Wikipedia ({wiki_lang}): {len(wiki_chunks)} chunks")
         else:
             yield ("progress", f"Wikipedia ({wiki_lang}): no results")
 
-    # 3. DuckDuckGo
+    # 3. DuckDuckGo — infer category from URL, apply topic-aware TTL
     if len(all_chunks) < MIN_CHUNKS:
         queries = generate_queries(name, goal_type)
         yield ("progress", f"searching web (DuckDuckGo)...")
@@ -381,7 +385,7 @@ def crawl_node_smart_stream(node: dict, goal_type: str = "general", wiki_lang: s
                 if text:
                     cat    = infer_category(url)
                     chunks = chunk_text(text, url)
-                    store_chunks(chunks, category=cat)
+                    store_chunks(chunks, category=cat, topic=topic)
                     all_chunks.extend(chunks)
                     yield ("progress", f"✓ {url[:50]} [{cat}]: {len(chunks)} chunks")
             if len(all_chunks) >= MIN_CHUNKS:
@@ -391,10 +395,11 @@ def crawl_node_smart_stream(node: dict, goal_type: str = "general", wiki_lang: s
 
 
 def crawl_node_smart(node: dict, goal_type: str = "general",
-                     verbose: bool = False, wiki_lang: str = "zh") -> int:
-    """Synchronous wrapper around crawl_node_smart_stream. Returns the number of chunks added."""
+                     verbose: bool = False, wiki_lang: str = "zh",
+                     topic: str = "default") -> int:
+    """Synchronous wrapper around crawl_node_smart_stream. Returns chunk count."""
     count = 0
-    for ev_type, ev_data in crawl_node_smart_stream(node, goal_type, wiki_lang=wiki_lang):
+    for ev_type, ev_data in crawl_node_smart_stream(node, goal_type, wiki_lang=wiki_lang, topic=topic):
         if ev_type == "progress" and verbose:
             print(f"  {ev_data}")
         elif ev_type == "done":

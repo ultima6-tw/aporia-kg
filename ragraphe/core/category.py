@@ -1,17 +1,20 @@
 """
-Category rules: category → TTL, display label, freshness warning.
-All categorization behavior is driven by this module; no category logic is hardcoded elsewhere.
+Category rules: display labels, time-sensitivity flags, URL-based inference.
+TTL values are now driven by freshness.yaml via ragraphe.config.freshness.get_ttl().
+CATEGORY_TTL is kept as a fallback for code paths that don't have topic context.
 """
 
-# category → cache duration in days (0 = never expires)
+# Fallback TTL (days) used when no topic context is available.
+# Prefer calling freshness.get_ttl(topic, category) when goal_text is known.
 CATEGORY_TTL: dict[str, int] = {
-    "concept":  0,    # conceptual knowledge, never expires
-    "how_to":   90,   # step-by-step instructions, 90 days
-    "resource": 30,   # resource recommendations, 30 days
-    "general":  30,   # default, 30 days
-    "event":    14,   # events / festivals, 14 days
-    "schedule": 7,    # timetables / opening hours, 7 days
-    "pricing":  7,    # prices / admission fees, 7 days
+    "concept":  0,    # Conceptual knowledge — never expires
+    "how_to":   90,   # Step-by-step guides
+    "resource": 30,   # Resource recommendations
+    "general":  30,   # Default
+    "event":    7,    # Events / festivals
+    "schedule": 7,    # Timetables / opening hours
+    "pricing":  7,    # Prices / admission fees
+    "news":     3,    # News articles
 }
 
 # category → frontend display label
@@ -23,26 +26,40 @@ CATEGORY_LABEL: dict[str, str] = {
     "event":    "📅 活動",
     "schedule": "🕐 時程",
     "pricing":  "💰 費用",
+    "news":     "📰 新聞",
 }
 
-# Time-sensitive categories: the frontend shows a staleness warning for these
-TIME_SENSITIVE: set[str] = {"pricing", "event", "schedule"}
+# Time-sensitive categories: frontend shows a staleness warning for these
+TIME_SENSITIVE: set[str] = {"pricing", "event", "schedule", "news"}
 
 # URL keywords → auto-infer category (used for Wikipedia / DuckDuckGo results)
 _URL_RULES: list[tuple[list[str], str]] = [
-    (["ticket", "admission", "entry", "票", "入場", "門票"], "pricing"),
-    (["price", "cost", "fee", "費", "價格", "收費"],        "pricing"),
-    (["event", "festival", "活動", "節慶", "祭"],           "event"),
-    (["schedule", "timetable", "hours", "時間", "班表"],    "schedule"),
-    (["how-to", "guide", "tutorial", "指南", "教學", "步驟"], "how_to"),
-    (["resource", "tool", "library", "資源", "工具"],       "resource"),
+    (["ticket", "admission", "entry", "票", "入場", "門票"],     "pricing"),
+    (["price", "cost", "fee", "費", "價格", "收費"],             "pricing"),
+    (["event", "festival", "活動", "節慶", "祭"],                "event"),
+    (["schedule", "timetable", "hours", "時間", "班表"],         "schedule"),
+    (["how-to", "guide", "tutorial", "指南", "教學", "步驟"],    "how_to"),
+    (["resource", "tool", "library", "資源", "工具"],            "resource"),
+    (["news", "latest", "新聞", "最新", "報導"],                 "news"),
 ]
 
 
 def infer_category(url: str) -> str:
-    """Infer category from a URL; returns 'general' when no rule matches."""
+    """Infer content category from a URL. Returns 'general' when no rule matches."""
     url_lower = url.lower()
     for keywords, cat in _URL_RULES:
         if any(kw in url_lower for kw in keywords):
             return cat
     return "general"
+
+
+def get_ttl(category: str, topic: str = "default") -> int:
+    """
+    Return TTL in days for a category, using topic-aware freshness config when available.
+    Falls back to CATEGORY_TTL when freshness config is unavailable.
+    """
+    try:
+        from ragraphe.config.freshness import get_ttl as _freshness_ttl
+        return _freshness_ttl(topic, category)
+    except Exception:
+        return CATEGORY_TTL.get(category, 30)
