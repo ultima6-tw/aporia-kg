@@ -1,16 +1,16 @@
-# Ragraphe
+# Aporia KG
 
 **A conversation-driven knowledge graph that grows with you.**
 
-You tell Ragraphe your goal. It builds a visual map of everything you need to get there — including the things you didn't know you needed.
+You tell Aporia KG your goal. It builds a visual map of everything you need to get there — including the things you didn't know you needed.
 
-> *"You don't know what you don't know."* Ragraphe is an AI mentor that surfaces the gaps you can't see yet.
+> *"You don't know what you don't know."* Aporia KG acts as an AI mentor that surfaces the gaps you can't see yet.
 
 ---
 
 ## What it does
 
-Most tools answer questions you already know how to ask. Ragraphe works differently: it starts from your goal and reverse-plans the path.
+Most tools answer questions you already know how to ask. Aporia KG works differently: it starts from your goal and reverse-plans the path.
 
 Tell it **"I want to climb Mt. Fuji"** or **"I want to learn machine learning"** or **"I want to launch a product"** — and it builds a knowledge graph of everything required, including prerequisites you never thought to mention.
 
@@ -39,6 +39,7 @@ Small orbiting dots around nodes are **knowledge satellites** — real content f
 - **Deep-dive exploration** — click any node or satellite to auto-send a sub-topic breakdown request to the AI
 - **Dynamic theme anchor** — deep-dive uses the most important node in that area as context, not just the initial goal
 - **RAG knowledge satellites** — orbiting dots show real snippets from the local knowledge base
+- **Content-language filter** — EN / ZH / JA toggle buttons filter which knowledge base languages appear as satellites
 - **Session persistence** — SQLite-backed, survives server restarts
 - **Session history panel** — switch between or restore past sessions
 - **Cross-session memory** — what you've already learned doesn't get re-suggested
@@ -80,8 +81,6 @@ User input
 | Backend | FastAPI + SSE streaming |
 | Frontend | force-graph (canvas 2D), vanilla JS — no build step |
 
-The entire frontend is embedded in a single Python file (`ragraphe/api/main.py`). No npm, no bundler, no separate build process.
-
 ---
 
 ## Quick Start
@@ -94,8 +93,8 @@ The entire frontend is embedded in a single Python file (`ragraphe/api/main.py`)
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ragraphe.git
-cd ragraphe
+git clone https://github.com/ultima6-tw/aporia-kg.git
+cd aporia-kg
 
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
@@ -154,7 +153,7 @@ ollama pull nomic-embed-text
 
 ## Adding Knowledge
 
-Ragraphe works best when the local knowledge base has content relevant to your domain.
+Aporia KG works best when the local knowledge base has content relevant to your domain.
 
 Use the **Knowledge Base panel** (📚 icon in the top bar) to import:
 
@@ -165,9 +164,9 @@ Use the **Knowledge Base panel** (📚 icon in the top bar) to import:
 | **Plain text** | Paste notes, documentation, anything |
 | **Topic crawl** | Enter a topic — auto-fetches Wikipedia + web results |
 
-All content is chunked, embedded, and stored locally in ChromaDB. Delete any source from the same panel.
+All content is chunked, embedded, and stored locally in ChromaDB. The content language (EN / ZH / JA) is auto-detected and tagged, so you can filter which languages appear as knowledge satellites per session.
 
-**Without any imports**, Ragraphe still works — the AI plans nodes from its own knowledge. The knowledge base just makes the satellite snippets more relevant and the planner more context-aware.
+**Without any imports**, Aporia KG still works — the AI plans nodes from its own knowledge. The knowledge base just makes the satellite snippets more relevant and the planner more context-aware.
 
 ---
 
@@ -179,7 +178,7 @@ All content is chunked, embedded, and stored locally in ChromaDB. Delete any sou
 
 **Navigating the graph**
 - Click any node → popup with status, description, and action buttons
-- Click **🔍 深入探索 / Deep dive** → AI breaks that node into sub-topics
+- Click **🔍 Deep dive** → AI breaks that node into sub-topics
 - Click any orbiting dot (satellite) → full knowledge snippet in the right panel
 - Hover nodes for a tooltip summary
 
@@ -198,7 +197,7 @@ Use the ⊞ button (bottom right) to switch between force-directed, tree (top-do
 
 Most people planning a complex goal don't know what they don't know. They can't Google what they haven't thought of.
 
-Ragraphe's AI acts like an experienced mentor:
+Aporia KG's AI acts like an experienced mentor:
 1. Listens to what you say → extracts your explicit concepts
 2. Checks the knowledge base → finds what experienced people consider necessary
 3. Shows you the gap → adds nodes for the things you didn't mention
@@ -212,19 +211,23 @@ The more people use it for similar goals, the more useful the popularity heatmap
 ```
 ragraphe/
 ├── api/
-│   └── main.py          # FastAPI app + entire frontend (HTML/JS/CSS)
+│   └── main.py          # FastAPI app + API endpoints
+├── frontend/
+│   ├── index.html       # App shell
+│   ├── style.css        # Styles
+│   └── app.js           # Graph + chat logic (force-graph, SSE, i18n)
 ├── core/
 │   ├── crawler.py       # Web crawler (Wikipedia + DuckDuckGo fallback)
 │   ├── conversation.py  # Conversation utilities
 │   └── category.py      # Content category inference
+├── config/
+│   ├── freshness.yaml   # 24-topic TTL configuration
+│   └── freshness.py     # Topic detection + TTL resolution
 ├── db/
 │   └── store.py         # SQLite / PostgreSQL abstraction layer
-├── llm/
-│   ├── gemini_client.py # Gemini API client (chat + embed + retry)
-│   └── ollama_client.py # Ollama client
-└── data/
-    ├── enrich_nodes.py  # Batch node enrichment script
-    └── seed_travel.py   # Travel domain seed data
+└── llm/
+    ├── gemini_client.py # Gemini API client (chat + embed + retry)
+    └── ollama_client.py # Ollama client
 ```
 
 ---
@@ -243,7 +246,7 @@ ragraphe/
 
 Pull requests welcome. Useful contributions:
 
-- Domain-specific knowledge bases (import via the UI or `seed_*.py` scripts)
+- Domain-specific knowledge bases (import via the UI)
 - Improved LLM prompts for specific fields
 - New export formats
 - UI improvements
