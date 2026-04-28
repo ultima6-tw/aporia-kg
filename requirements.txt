@@ -14,3 +14,6 @@ aiofiles
 python-multipart
 ddgs
 scikit-learn
+typer
+fastmcp
+httpx
