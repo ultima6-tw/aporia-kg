@@ -115,6 +115,23 @@ const TRANSLATIONS = {
     'kb.crawl.running':     '爬取中...',
     'kb.crawl.done':        '✓ 完成，共 {count} 個 chunks',
     'kb.crawl.empty':       '未找到相關資料',
+    // Templates
+    'tmpl.label':           '或選擇範例快速開始',
+    'tmpl.ml':              '我想從零開始學習機器學習',
+    'tmpl.ml.title':        '學習機器學習',
+    'tmpl.ml.desc':         '從零開始理解 ML 核心概念與實作',
+    'tmpl.paper':           '我想寫一篇學術研究論文',
+    'tmpl.paper.title':     '寫一篇研究論文',
+    'tmpl.paper.desc':      '規劃文獻回顧、研究設計到投稿',
+    'tmpl.japan':           '我想規劃一趟日本旅行',
+    'tmpl.japan.title':     '計劃日本旅行',
+    'tmpl.japan.desc':      '行程、預算、簽證、住宿一次規劃',
+    'tmpl.startup':         '我想打造一個開源 Side Project',
+    'tmpl.startup.title':   '打造一個 Side Project',
+    'tmpl.startup.desc':    '從想法到上線的完整開發路徑',
+    'tmpl.career':          '我想轉職成為軟體工程師',
+    'tmpl.career.title':    '轉職軟體工程師',
+    'tmpl.career.desc':     '技能樹、作品集、求職準備全攻略',
     'kb.browse.ph':         '輸入關鍵詞搜尋知識庫...',
     'kb.browse.btn':        '搜尋',
     'kb.browse.no_result':  '無相關結果',
@@ -256,6 +273,23 @@ const TRANSLATIONS = {
     'kb.crawl.running':     'Crawling...',
     'kb.crawl.done':        '✓ Done — {count} chunks',
     'kb.crawl.empty':       'No data found',
+    // Templates
+    'tmpl.label':           'Or pick an example to get started',
+    'tmpl.ml':              'I want to learn machine learning from scratch',
+    'tmpl.ml.title':        'Learn Machine Learning',
+    'tmpl.ml.desc':         'Core concepts and hands-on practice from zero',
+    'tmpl.paper':           'I want to write an academic research paper',
+    'tmpl.paper.title':     'Write a Research Paper',
+    'tmpl.paper.desc':      'Literature review, research design, to submission',
+    'tmpl.japan':           'I want to plan a trip to Japan',
+    'tmpl.japan.title':     'Plan a Japan Trip',
+    'tmpl.japan.desc':      'Itinerary, budget, visa, accommodation — all in one',
+    'tmpl.startup':         'I want to build an open-source side project',
+    'tmpl.startup.title':   'Build a Side Project',
+    'tmpl.startup.desc':    'Full path from idea to launch',
+    'tmpl.career':          'I want to become a software engineer',
+    'tmpl.career.title':    'Switch Career to SWE',
+    'tmpl.career.desc':     'Skill tree, portfolio, and job hunt roadmap',
     'kb.browse.ph':         'Search knowledge base...',
     'kb.browse.btn':        'Search',
     'kb.browse.no_result':  'No results',
@@ -396,6 +430,23 @@ const TRANSLATIONS = {
     'kb.crawl.running':     '収集中...',
     'kb.crawl.done':        '✓ 完了 — {count}件',
     'kb.crawl.empty':       'データが見つかりません',
+    // Templates
+    'tmpl.label':           'またはサンプルを選んですぐ始める',
+    'tmpl.ml':              '機械学習をゼロから学びたい',
+    'tmpl.ml.title':        '機械学習を学ぶ',
+    'tmpl.ml.desc':         'コアコンセプトと実装をゼロから',
+    'tmpl.paper':           '学術論文を書きたい',
+    'tmpl.paper.title':     '研究論文を書く',
+    'tmpl.paper.desc':      '文献調査から投稿まで一気に計画',
+    'tmpl.japan':           '日本旅行を計画したい',
+    'tmpl.japan.title':     '日本旅行を計画する',
+    'tmpl.japan.desc':      '旅程・予算・ビザ・宿泊をまとめて',
+    'tmpl.startup':         'オープンソースの副業プロジェクトを作りたい',
+    'tmpl.startup.title':   'サイドプロジェクトを作る',
+    'tmpl.startup.desc':    'アイデアからリリースまでの全ロードマップ',
+    'tmpl.career':          'ソフトウェアエンジニアに転職したい',
+    'tmpl.career.title':    'SEに転職する',
+    'tmpl.career.desc':     'スキルツリー・ポートフォリオ・就活対策',
     'kb.browse.ph':         'ナレッジベースを検索...',
     'kb.browse.btn':        '検索',
     'kb.browse.no_result':  '結果なし',
@@ -3335,6 +3386,15 @@ function dismissOnboarding() {
   const card    = document.getElementById('onboarding-card');
   if (card)    card.style.display = 'none';
   if (overlay) overlay.classList.remove('interactive');
+}
+
+function startFromTemplate(tmplKey) {
+  const goal = t(tmplKey);
+  const input = document.getElementById('msg-input');
+  if (!input) return;
+  dismissOnboarding();
+  input.value = goal;
+  startSession();
 }
 
 // ── Completion Card ────────────────────────────────────────────────────────

@@ -52,6 +52,25 @@
     cursor: pointer; transition: background 0.2s;
   }
   #ob-dismiss-btn:hover { background: #2563eb; color: #fff; }
+  /* ── 模板卡 ── */
+  #template-section { margin-top: 20px; }
+  .tmpl-label {
+    text-align: center; font-size: 11px; color: #475569;
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
+  }
+  .tmpl-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .tmpl-card {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+    background: #0d1424; border: 1px solid #1e293b; border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; text-align: left;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .tmpl-card:hover { border-color: #3b82f6; background: #0f1e36; }
+  .tmpl-icon { font-size: 18px; line-height: 1; }
+  .tmpl-title { font-size: 12px; font-weight: 600; color: #cbd5e1; }
+  .tmpl-desc  { font-size: 11px; color: #475569; line-height: 1.4; }
   /* ── 完成摘要卡 ── */
   .msg-complete {
     margin: 12px 0 6px; padding: 14px 16px;

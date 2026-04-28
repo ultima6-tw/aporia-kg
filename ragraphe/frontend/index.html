@@ -28,6 +28,36 @@
         </div>
         <button id="ob-dismiss-btn" onclick="dismissOnboarding()">了解了，開始探索 →</button>
       </div>
+      <div id="template-section">
+        <div class="tmpl-label" data-i18n="tmpl.label">或選擇範例快速開始</div>
+        <div class="tmpl-grid">
+          <button class="tmpl-card" onclick="startFromTemplate('tmpl.ml')" data-tmpl-key="tmpl.ml">
+            <span class="tmpl-icon">🤖</span>
+            <span class="tmpl-title" data-i18n="tmpl.ml.title">學習機器學習</span>
+            <span class="tmpl-desc" data-i18n="tmpl.ml.desc">從零開始理解 ML 核心概念與實作</span>
+          </button>
+          <button class="tmpl-card" onclick="startFromTemplate('tmpl.paper')" data-tmpl-key="tmpl.paper">
+            <span class="tmpl-icon">📄</span>
+            <span class="tmpl-title" data-i18n="tmpl.paper.title">寫一篇研究論文</span>
+            <span class="tmpl-desc" data-i18n="tmpl.paper.desc">規劃文獻回顧、研究設計到投稿</span>
+          </button>
+          <button class="tmpl-card" onclick="startFromTemplate('tmpl.japan')" data-tmpl-key="tmpl.japan">
+            <span class="tmpl-icon">🗺️</span>
+            <span class="tmpl-title" data-i18n="tmpl.japan.title">計劃日本旅行</span>
+            <span class="tmpl-desc" data-i18n="tmpl.japan.desc">行程、預算、簽證、住宿一次規劃</span>
+          </button>
+          <button class="tmpl-card" onclick="startFromTemplate('tmpl.startup')" data-tmpl-key="tmpl.startup">
+            <span class="tmpl-icon">🚀</span>
+            <span class="tmpl-title" data-i18n="tmpl.startup.title">打造一個 Side Project</span>
+            <span class="tmpl-desc" data-i18n="tmpl.startup.desc">從想法到上線的完整開發路徑</span>
+          </button>
+          <button class="tmpl-card" onclick="startFromTemplate('tmpl.career')" data-tmpl-key="tmpl.career">
+            <span class="tmpl-icon">💼</span>
+            <span class="tmpl-title" data-i18n="tmpl.career.title">轉職軟體工程師</span>
+            <span class="tmpl-desc" data-i18n="tmpl.career.desc">技能樹、作品集、求職準備全攻略</span>
+          </button>
+        </div>
+      </div>
     </div>
     <div id="graph-canvas"></div>
     <div id="zoom-controls">
