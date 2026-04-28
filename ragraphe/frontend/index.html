@@ -119,10 +119,14 @@
         <button class="lang-btn" data-lang="ja" onclick="setLang('ja')"
           style="background:none;border:1px solid #1e293b;border-radius:4px;color:#475569;
                  font-size:10px;padding:2px 6px;cursor:pointer;transition:all 0.15s">日本語</button>
-        <button id="kb-btn" onclick="openKB()" title="知識庫" data-i18n-title="kb.title">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button id="kb-btn" onclick="openKB()" data-i18n-title="kb.title"
+          style="display:flex;align-items:center;gap:4px;background:none;border:1px solid #1e3a5f;border-radius:4px;
+                 color:#38bdf8;font-size:10px;padding:3px 7px;cursor:pointer;transition:all 0.2s"
+          onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e3a5f'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
           </svg>
+          <span data-i18n="kb.title">知識庫</span>
         </button>
         <button id="admin-btn" onclick="openAdmin()" title="優先來源管理">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
