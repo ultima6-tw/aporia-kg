@@ -2620,30 +2620,39 @@ def node_resources(req: NodeResourcesRequest):
         quality -= geo_p
 
         db_cat = c.get("category", "general")
-        # Use pre-computed display_category if available (stored at index time),
-        # fall back to runtime inference for older chunks that don't have it.
-        display_cat = c.get("display_category") or _infer_display_category(text, db_cat)
+        # Parse multi-category field (comma-separated, e.g. "travel,news").
+        # Fall back to legacy single-field or runtime inference for older chunks.
+        _raw_cats = c.get("display_categories") or c.get("display_category") or ""
+        if _raw_cats:
+            display_cats = [s.strip() for s in _raw_cats.split(",") if s.strip()]
+        else:
+            display_cats = _infer_display_category(text, db_cat).split(",")
+        display_cat = display_cats[0]   # primary category (highest-scoring) for labelling
         is_kb = bool(c.get("source_name", ""))
 
-        # Category-based score bonus with exponential time-decay
-        # effective_bonus = base_bonus * exp(-k * age_days)
+        # Category-based score bonus with exponential time-decay.
+        # For multi-category chunks: use best_bonus (max across all cats) and fastest k.
+        # effective_bonus = best_bonus * exp(-fastest_k * age_days)
         from ragraphe.core.category import SATELLITE_SCORE_BONUS, SATELLITE_THRESHOLD, SATELLITE_DECAY_RATE
         import math
-        base_bonus = SATELLITE_SCORE_BONUS.get(display_cat, 0.0)
+        best_bonus = max((SATELLITE_SCORE_BONUS.get(cat, 0.0) for cat in display_cats), default=0.0)
         crawled_at = c.get("crawled_at", "")
         decay_penalty = 0.0
-        if base_bonus > 0 and crawled_at and display_cat in SATELLITE_DECAY_RATE and not is_kb:
-            try:
-                from datetime import datetime as _dt
-                age_days = (_dt.utcnow() - _dt.fromisoformat(crawled_at)).total_seconds() / 86400
-                k = SATELLITE_DECAY_RATE[display_cat]
-                effective_bonus = round(base_bonus * math.exp(-k * age_days), 3)
-                decay_penalty = round(base_bonus - effective_bonus, 3)
-                quality += effective_bonus
-            except Exception:
-                quality += base_bonus
+        if best_bonus > 0 and crawled_at and not is_kb:
+            fastest_k = max((SATELLITE_DECAY_RATE.get(cat, 0.0) for cat in display_cats), default=0.0)
+            if fastest_k > 0:
+                try:
+                    from datetime import datetime as _dt
+                    age_days = (_dt.utcnow() - _dt.fromisoformat(crawled_at)).total_seconds() / 86400
+                    effective_bonus = round(best_bonus * math.exp(-fastest_k * age_days), 3)
+                    decay_penalty = round(best_bonus - effective_bonus, 3)
+                    quality += effective_bonus
+                except Exception:
+                    quality += best_bonus
+            else:
+                quality += best_bonus
         else:
-            quality += base_bonus
+            quality += best_bonus
 
         # KB-imported content gets a strong bonus — user brought it in intentionally
         if is_kb:
@@ -2652,7 +2661,7 @@ def node_resources(req: NodeResourcesRequest):
         quality = round(quality, 3)
         if quality < SATELLITE_THRESHOLD:
             # Track sources that failed only due to time-decay (worth re-crawling)
-            if decay_penalty > 0 and (quality + decay_penalty) >= SATELLITE_THRESHOLD:
+            if decay_penalty > 0 and (quality + best_bonus) >= SATELLITE_THRESHOLD:
                 stale_sources.add(src)
             continue
 

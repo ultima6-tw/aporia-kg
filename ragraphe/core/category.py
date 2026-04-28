@@ -91,16 +91,19 @@ _KW_PRODUCT = re.compile(r"(購買|推薦|評測|比較|價格|促銷|限時|優
 _KW_CONCEPT = re.compile(r"(定義|是指|概念|理論|解釋|包含|分為|指的是)", re.IGNORECASE)
 
 
-def infer_display_category(text: str, db_cat: str = "general") -> str:
-    """Infer the display category from text content, falling back to db_cat.
+def infer_display_categories(text: str, db_cat: str = "general") -> list[str]:
+    """Return ALL matching display categories for a chunk (score >= 1 keyword hits).
 
     Display categories: travel | learning | news | product | concept | general
     These map directly to SATELLITE_SCORE_BONUS keys.
+    Returned list is sorted by score descending; always contains at least one element.
     """
+    forced: list[str] = []
     if db_cat == "how_to":
-        return "learning"
+        forced.append("learning")
     if db_cat == "event":
-        return "news"
+        forced.append("news")
+
     scores = {
         "travel":   len(_KW_TRAVEL.findall(text)),
         "learning": len(_KW_LEARN.findall(text)),
@@ -108,10 +111,25 @@ def infer_display_category(text: str, db_cat: str = "general") -> str:
         "product":  len(_KW_PRODUCT.findall(text)),
         "concept":  len(_KW_CONCEPT.findall(text)),
     }
-    best = max(scores, key=lambda k: scores[k])
-    if scores[best] >= 1:
-        return best
-    return "concept" if db_cat == "concept" else "general"
+    matched = sorted(
+        [cat for cat, s in scores.items() if s >= 1],
+        key=lambda c: scores[c], reverse=True
+    )
+    # Merge: forced categories first, then keyword-matched, deduplicated
+    result: list[str] = []
+    seen: set[str] = set()
+    for c in forced + matched:
+        if c not in seen:
+            result.append(c)
+            seen.add(c)
+    if not result:
+        result.append("concept" if db_cat == "concept" else "general")
+    return result
+
+
+def infer_display_category(text: str, db_cat: str = "general") -> str:
+    """Single-category convenience wrapper — returns the top-scoring category."""
+    return infer_display_categories(text, db_cat)[0]
 
 
 def get_ttl(category: str, topic: str = "default") -> int:

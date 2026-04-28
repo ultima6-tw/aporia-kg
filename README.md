@@ -43,7 +43,7 @@ Small orbiting dots around nodes are **knowledge satellites** — content fragme
 - **Deep-dive exploration** — click any node or satellite to auto-send a sub-topic breakdown request to the AI
 - **Dynamic theme anchor** — deep-dive uses the most important node in that area as context, not just the initial goal
 - **RAG knowledge satellites** — orbiting dots show snippets scored for relevance + freshness; generic content the LLM already knows is filtered out
-- **Satellite scoring** — category-based bonuses (travel/news/product score higher), exponential time-decay for time-sensitive content, auto re-crawl when content goes stale
+- **Satellite scoring** — multi-category bonuses (a chunk can belong to travel + news simultaneously; best bonus + fastest decay applied), exponential time-decay for time-sensitive content, auto re-crawl when content goes stale
 - **Content-language filter** — EN / ZH / JA toggle buttons filter which knowledge base languages appear as satellites
 - **Session persistence** — SQLite-backed, survives server restarts
 - **Session history panel** — switch between or restore past sessions
