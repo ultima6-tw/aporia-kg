@@ -215,6 +215,12 @@ class KnowledgeJSONLRequest(BaseModel):
     session_id: str = ""
 
 
+class KnowledgeAskRequest(BaseModel):
+    query:      str
+    n:          int = 8     # chunks to retrieve
+    lang:       str = "en"  # answer language
+
+
 _LANG_TO_DB: dict[str, str] = {"en": "en", "zh-TW": "zh", "ja": "ja"}
 _ALL_FILTER_LANGS = ["en", "zh", "ja"]
 
@@ -2967,7 +2973,7 @@ async def knowledge_upload_pdf(
     session_id:  str        = Form(""),
 ):
     """Upload PDF → parse → chunk + embed → raw_chunks; file stored in data/files/."""
-    from ragraphe.core.crawler import parse_pdf, chunk_text, store_chunks
+    from ragraphe.core.crawler import chunk_text, store_chunks
 
     if not file.filename.lower().endswith(".pdf"):
         return {"ok": False, "error": "Only PDF files are supported"}
@@ -2979,20 +2985,30 @@ async def knowledge_upload_pdf(
     content = await file.read()
     dest.write_bytes(content)
 
-    # Parse and chunk
-    text = parse_pdf(str(dest))
-    if not text.strip():
+    # Parse and chunk page-by-page (no char limit — index entire manual)
+    from ragraphe.core.crawler import chunk_text, store_chunks
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(str(dest))
+        display_name = source_name or file.filename
+        source_path  = f"/files/{unique_name}"
+        all_chunks: list[dict] = []
+        for page in reader.pages:
+            page_text = (page.extract_text() or "").strip()
+            if len(page_text) > 50:
+                page_chunks = chunk_text(page_text, source_path)
+                for c in page_chunks:
+                    c["source_name"] = display_name
+                all_chunks.extend(page_chunks)
+    except Exception as e:
+        dest.unlink(missing_ok=True)
+        return {"ok": False, "error": f"Failed to parse PDF: {e}"}
+
+    if not all_chunks:
         dest.unlink(missing_ok=True)
         return {"ok": False, "error": "Failed to extract text from PDF"}
 
-    display_name = source_name or file.filename
-    source_path  = f"/files/{unique_name}"   # Browser-accessible path
-
-    chunks = chunk_text(text, source_path)
-    # Include display name in each chunk's metadata for frontend use
-    for c in chunks:
-        c["source_name"] = display_name
-
+    chunks = all_chunks
     store_chunks(chunks, category=category, ttl_days=0)   # PDFs never expire
     return {
         "ok":       True,
@@ -3029,6 +3045,56 @@ def knowledge_add_jsonl(req: KnowledgeJSONLRequest):
         return {"ok": False, "error": f"No valid data ({errors} lines failed to parse)"}
     store_chunks(chunks)
     return {"ok": True, "chunks": len(chunks), "errors": errors}
+
+
+@app.post("/api/knowledge/ask")
+def knowledge_ask(req: KnowledgeAskRequest):
+    """RAG Q&A: search KB → build context → Gemini → return grounded answer."""
+    from ragraphe.core.crawler import query_raw_chunks
+    if not req.query.strip():
+        return {"answer": "", "sources": [], "chunks_used": 0}
+    try:
+        vec = embed(req.query[:300])
+        chunks = query_raw_chunks(vec, n=req.n)
+        if not chunks:
+            return {
+                "answer": "No relevant content found in the knowledge base for this query.",
+                "sources": [],
+                "chunks_used": 0,
+            }
+        # Build context block
+        context_parts = []
+        for i, c in enumerate(chunks, 1):
+            src = c.get("source_name") or c.get("source", "")
+            context_parts.append(f"[{i}] (source: {src})\n{c['text'][:600]}")
+        context = "\n\n".join(context_parts)
+
+        lang_instruction = {
+            "en":    "Answer in English.",
+            "zh-TW": "請用繁體中文回答。",
+            "ja":    "日本語で回答してください。",
+        }.get(req.lang, "Answer in English.")
+
+        system = (
+            "You are a precise technical assistant. Answer only based on the provided context. "
+            "If the context does not contain enough information, say so clearly. "
+            "Cite which source numbers you used (e.g. [1], [3]). "
+            f"{lang_instruction}"
+        )
+        prompt = f"Context:\n{context}\n\nQuestion: {req.query}"
+        answer = chat([{"role": "user", "content": prompt}], system=system)
+
+        seen = set()
+        sources = []
+        for c in chunks:
+            src = c.get("source_name") or c.get("source", "")
+            if src and src not in seen:
+                seen.add(src)
+                sources.append(src)
+
+        return {"answer": answer, "sources": sources, "chunks_used": len(chunks)}
+    except Exception as e:
+        return {"answer": "", "sources": [], "chunks_used": 0, "error": str(e)}
 
 
 # ── Frontend HTML ─────────────────────────────────────────────────────────────

@@ -253,5 +253,24 @@ def kb_search(query: str, n: int = 5) -> list[dict]:
     return _client.search_kb(query, n)
 
 
+@mcp.tool()
+def kb_ask(query: str, lang: str = "en") -> dict:
+    """
+    Ask a question and get a grounded answer from the knowledge base.
+    Unlike plain LLM, the answer is based on imported manuals/documents — not guessed.
+    Use this for instrument operation, SCPI commands, datasheet specs, or any domain-specific question.
+
+    Args:
+        query: Your question (e.g. "How do I set edge trigger holdoff on the MXO4?")
+        lang: Answer language — "en", "zh-TW", or "ja"
+
+    Returns:
+        answer: Grounded answer with source citations
+        sources: List of source documents used
+        chunks_used: Number of context chunks retrieved
+    """
+    return _client.kb_ask(query, lang=lang)
+
+
 if __name__ == "__main__":
     mcp.run()
