@@ -2591,6 +2591,7 @@ def node_resources(req: NodeResourcesRequest):
 
     seen_sources: set[str] = set()
     candidates = []
+    stale_sources: set[str] = set()   # sources that failed only due to time-decay
 
     for c in chunks:
         dist = c.get("distance", 1.0)
@@ -2654,12 +2655,14 @@ def node_resources(req: NodeResourcesRequest):
 
         # Time-decay for time-sensitive crawled content
         crawled_at = c.get("crawled_at", "")
+        decay_penalty = 0.0
         if crawled_at and display_cat in SATELLITE_TIME_DECAY and not is_kb:
             try:
                 from datetime import datetime as _dt
                 age_days = (_dt.utcnow() - _dt.fromisoformat(crawled_at)).total_seconds() / 86400
                 decay_days, max_penalty = SATELLITE_TIME_DECAY[display_cat]
-                quality -= round(min(age_days / decay_days, 1.0) * max_penalty, 3)
+                decay_penalty = round(min(age_days / decay_days, 1.0) * max_penalty, 3)
+                quality -= decay_penalty
             except Exception:
                 pass
 
@@ -2669,6 +2672,9 @@ def node_resources(req: NodeResourcesRequest):
 
         quality = round(quality, 3)
         if quality < SATELLITE_THRESHOLD:
+            # Track sources that failed only due to time-decay (worth re-crawling)
+            if decay_penalty > 0 and (quality + decay_penalty) >= SATELLITE_THRESHOLD:
+                stale_sources.add(src)
             continue
 
         seen_sources.add(src)
@@ -2801,6 +2807,21 @@ def node_resources(req: NodeResourcesRequest):
             ).start()
             print(f"[crawl] triggered for node: {node_name!r}", flush=True)
         return {"resources": [], "crawling": True}   # Crawling in progress; frontend waits then retries
+
+    # Stale content: results exist but some sources scored low only due to age.
+    # Show what we have now, but trigger a background re-crawl so next visit is fresher.
+    if stale_sources and req.node_id not in crawl_pending and req.node_id not in crawl_done:
+        goal_text = data.get("goal", "")
+        goal_type = "travel" if any(c in goal_text for c in _KNOWN_GOAL_CITIES) else "general"
+        topic     = data.get("topic", detect_topic(goal_text))
+        crawl_pending.add(req.node_id)
+        threading.Thread(
+            target=_do_targeted_crawl,
+            args=(node_name, node_desc, goal_text, goal_type, data, req.node_id),
+            kwargs={"topic": topic, "lang": data.get("lang", "en")},
+            daemon=True,
+        ).start()
+        print(f"[crawl] stale content re-crawl triggered for node: {node_name!r}", flush=True)
 
     return {"resources": resources}
 
