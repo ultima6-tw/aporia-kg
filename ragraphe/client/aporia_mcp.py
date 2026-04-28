@@ -199,5 +199,59 @@ def list_sessions() -> list[dict]:
     return _client.list_sessions()
 
 
+# ── Knowledge Base tools ──────────────────────────────────────────────────────
+
+@mcp.tool()
+def kb_import_url(url: str, source_name: str = "") -> dict:
+    """
+    Crawl a webpage and add its content to the knowledge base.
+    Use this for documentation pages, wikis, or any web resource.
+
+    Args:
+        url: URL to crawl and import
+        source_name: Human-readable label for this source (defaults to URL)
+    """
+    return _client.import_url(url, source_name)
+
+
+@mcp.tool()
+def kb_import_pdf(pdf_url: str, source_name: str = "") -> dict:
+    """
+    Download a PDF from a URL and add it to the knowledge base.
+    Ideal for instrument manuals, datasheets, research papers, etc.
+
+    Args:
+        pdf_url: Direct URL to the PDF file
+        source_name: Human-readable label (e.g. "Keysight 33500B User Guide")
+    """
+    return _client.import_pdf_from_url(pdf_url, source_name)
+
+
+@mcp.tool()
+def kb_import_text(text: str, source_name: str = "") -> dict:
+    """
+    Add plain text directly to the knowledge base.
+    Use this for pasting in notes, specs, or any text content.
+
+    Args:
+        text: The text content to import
+        source_name: Human-readable label for this source
+    """
+    return _client.import_text(text, source_name)
+
+
+@mcp.tool()
+def kb_search(query: str, n: int = 5) -> list[dict]:
+    """
+    Search the knowledge base for relevant chunks.
+    Use this to verify imported content or look up specific information.
+
+    Args:
+        query: Search query (semantic search)
+        n: Number of results to return (default 5)
+    """
+    return _client.search_kb(query, n)
+
+
 if __name__ == "__main__":
     mcp.run()

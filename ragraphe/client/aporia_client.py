@@ -214,3 +214,57 @@ class AporiaClient:
         for n in nodes:
             counts[n.status] = counts.get(n.status, 0) + 1
         return counts
+
+    # ── Knowledge base ───────────────────────────────────────────────────────
+
+    def import_url(self, url: str, source_name: str = "") -> dict:
+        """Crawl a URL and add its content to the knowledge base."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/url",
+            json={"url": url, "source": source_name or url},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def import_text(self, text: str, source_name: str = "") -> dict:
+        """Add plain text directly to the knowledge base."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/text",
+            json={"text": text, "source": source_name},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def import_pdf_from_url(self, pdf_url: str, source_name: str = "") -> dict:
+        """Download a PDF from a URL and add it to the knowledge base."""
+        import tempfile, pathlib
+        resp = httpx.get(pdf_url, timeout=self.timeout, follow_redirects=True)
+        resp.raise_for_status()
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            f.write(resp.content)
+            tmp_path = f.name
+        try:
+            with open(tmp_path, "rb") as f:
+                r = httpx.post(
+                    f"{self.base}/api/knowledge/pdf",
+                    files={"file": (pathlib.Path(tmp_path).name, f, "application/pdf")},
+                    data={"source_name": source_name or pdf_url, "category": "concept"},
+                    timeout=self.timeout,
+                )
+            r.raise_for_status()
+            return r.json()
+        finally:
+            pathlib.Path(tmp_path).unlink(missing_ok=True)
+
+    def search_kb(self, query: str, n: int = 5) -> list[dict]:
+        """Search the knowledge base and return relevant chunks."""
+        r = httpx.get(
+            f"{self.base}/api/knowledge/search",
+            params={"q": query, "n": n},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("results", data.get("chunks", []))
