@@ -2591,7 +2591,7 @@ def node_resources(req: NodeResourcesRequest):
         _session_sat_locks[req.session_id] = threading.Lock()
     sat_lock = _session_sat_locks[req.session_id]
 
-    seen_sources: set[str] = set()
+    source_count: dict[str, int] = {}   # src → how many chunks already taken
     candidates = []
     stale_sources: set[str] = set()   # sources that failed only due to time-decay
 
@@ -2603,8 +2603,10 @@ def node_resources(req: NodeResourcesRequest):
         if not src.startswith("http"):
             continue
         if _BOILERPLATE_DOMAINS.search(src):
-            continue        # Exclude ad/social media links directly
-        if src in seen_sources:
+            continue
+        is_kb_src = bool(c.get("source_name", ""))
+        max_per_src = 3 if is_kb_src else 1   # KB docs can contribute multiple chunks; web = 1
+        if source_count.get(src, 0) >= max_per_src:
             continue
         # Cross-node dedup: same snippet text (first 60 chars) only — same URL on different nodes is OK
         # (one article can cover multiple topics relevant to different nodes)
@@ -2682,7 +2684,7 @@ def node_resources(req: NodeResourcesRequest):
                 stale_sources.add(src)
             continue
 
-        seen_sources.add(src)
+        source_count[src] = source_count.get(src, 0) + 1
         title = _extract_title(text)
         domain = _domain_label(src)
         source_name = c.get("source_name", "")
