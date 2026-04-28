@@ -224,6 +224,7 @@ def store_chunks(chunks: list[dict], category: str = "general",
     _EMBED_BATCH = 50   # Gemini batch embedding limit per API call
     for i in range(0, len(chunks), _EMBED_BATCH):
         batch = chunks[i:i + _EMBED_BATCH]
+        from ragraphe.core.category import infer_display_category
         _now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
         raw_chunks.upsert(
             ids        = [c["id"] for c in batch],
@@ -231,14 +232,15 @@ def store_chunks(chunks: list[dict], category: str = "general",
             documents  = [c["text"] for c in batch],
             metadatas  = [
                 {
-                    "source":      c["source"],
-                    "source_name": c.get("source_name", ""),
-                    "category":    c.get("category", category),
-                    "expires_at":  c.get("expires_at", expires_at),
-                    "crawled_at":  c.get("crawled_at", _now_iso),
-                    "lang_en":     (_dl := _detect_lang(c["text"])) == "en",
-                    "lang_zh":     _dl == "zh",
-                    "lang_ja":     _dl == "ja",
+                    "source":           c["source"],
+                    "source_name":      c.get("source_name", ""),
+                    "category":         c.get("category", category),
+                    "display_category": infer_display_category(c["text"], c.get("category", category)),
+                    "expires_at":       c.get("expires_at", expires_at),
+                    "crawled_at":       c.get("crawled_at", _now_iso),
+                    "lang_en":          (_dl := _detect_lang(c["text"])) == "en",
+                    "lang_zh":          _dl == "zh",
+                    "lang_ja":          _dl == "ja",
                 }
                 for c in batch
             ],

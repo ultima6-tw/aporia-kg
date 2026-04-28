@@ -1,8 +1,9 @@
 """
-Category rules: display labels, time-sensitivity flags, URL-based inference.
+Category rules: display labels, time-sensitivity flags, URL-based and text-based inference.
 TTL values are now driven by freshness.yaml via ragraphe.config.freshness.get_ttl().
 CATEGORY_TTL is kept as a fallback for code paths that don't have topic context.
 """
+import re
 
 # Fallback TTL (days) used when no topic context is available.
 # Prefer calling freshness.get_ttl(topic, category) when goal_text is known.
@@ -79,6 +80,38 @@ def infer_category(url: str) -> str:
         if any(kw in url_lower for kw in keywords):
             return cat
     return "general"
+
+
+# Text-based keyword patterns for display category inference
+_KW_TRAVEL  = re.compile(r"(旅遊|景點|交通|住宿|餐廳|美食|景色|寺廟|神社|旅行|觀光|"
+                          r"參觀|門票|入場|行程|旅館|溫泉|海灘|博物館|古蹟|tour|sightseeing)", re.IGNORECASE)
+_KW_LEARN   = re.compile(r"(學習|教學|課程|概念|原理|定義|算法|演算|入門|教程|tutorial|guide|learn)", re.IGNORECASE)
+_KW_NEWS    = re.compile(r"(最新|報導|新聞|消息|公告|發佈|更新|2024|2025|2026)", re.IGNORECASE)
+_KW_PRODUCT = re.compile(r"(購買|推薦|評測|比較|價格|促銷|限時|優惠|product|review)", re.IGNORECASE)
+_KW_CONCEPT = re.compile(r"(定義|是指|概念|理論|解釋|包含|分為|指的是)", re.IGNORECASE)
+
+
+def infer_display_category(text: str, db_cat: str = "general") -> str:
+    """Infer the display category from text content, falling back to db_cat.
+
+    Display categories: travel | learning | news | product | concept | general
+    These map directly to SATELLITE_SCORE_BONUS keys.
+    """
+    if db_cat == "how_to":
+        return "learning"
+    if db_cat == "event":
+        return "news"
+    scores = {
+        "travel":   len(_KW_TRAVEL.findall(text)),
+        "learning": len(_KW_LEARN.findall(text)),
+        "news":     len(_KW_NEWS.findall(text)),
+        "product":  len(_KW_PRODUCT.findall(text)),
+        "concept":  len(_KW_CONCEPT.findall(text)),
+    }
+    best = max(scores, key=lambda k: scores[k])
+    if scores[best] >= 1:
+        return best
+    return "concept" if db_cat == "concept" else "general"
 
 
 def get_ttl(category: str, topic: str = "default") -> int:

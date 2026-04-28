@@ -2459,37 +2459,7 @@ def node_resources(req: NodeResourcesRequest):
     _PRODUCT_KW = re.compile(r"(購買|推薦|評測|比較|價格|促銷|限時|優惠|product|review)", re.IGNORECASE)
     _CONCEPT_KW = re.compile(r"(定義|是指|概念|理論|解釋|包含|分為|指的是)", re.IGNORECASE)
 
-    def _infer_display_category(text: str, db_cat: str) -> str:
-        """Convert DB-stored category to the display category used by frontend catColors.
-        Text content takes priority; DB category is used only as a fallback."""
-        # DB shortcuts for unambiguous categories — but only if text analysis agrees or gives no signal
-        if db_cat == "how_to":
-            return "learning"
-        if db_cat == "event":
-            return "news"
-        # Always run text analysis — db_cat "concept" used to short-circuit here, causing
-        # pricing/news content stored as concept to miss their bonuses.
-        travel_score  = len(_TRAVEL_KW.findall(text))
-        learn_score   = len(_LEARN_KW.findall(text))
-        news_score    = len(_NEWS_KW.findall(text))
-        prod_score    = len(_PRODUCT_KW.findall(text))
-        concept_score = len(_CONCEPT_KW.findall(text))
-        scores = {
-            "travel":  travel_score,
-            "learning": learn_score,
-            "news":    news_score,
-            "product": prod_score,
-            "concept": concept_score,
-        }
-        best = max(scores, key=lambda k: scores[k])
-        if scores[best] >= 2:
-            return best
-        if scores[best] == 1:
-            return best
-        # No strong text signal — fall back to DB category
-        if db_cat == "concept":
-            return "concept"
-        return "general"
+    from ragraphe.core.category import infer_display_category as _infer_display_category
 
     # ── Geographic conflict filter (prevent Kyoto nodes pulling Osaka/Tokyo/Chiayi content) ────
     # Known city → rival city list (if rival city appears in first 200 chars but goal city does not → hard block)
@@ -2650,7 +2620,9 @@ def node_resources(req: NodeResourcesRequest):
         quality -= geo_p
 
         db_cat = c.get("category", "general")
-        display_cat = _infer_display_category(text, db_cat)
+        # Use pre-computed display_category if available (stored at index time),
+        # fall back to runtime inference for older chunks that don't have it.
+        display_cat = c.get("display_category") or _infer_display_category(text, db_cat)
         is_kb = bool(c.get("source_name", ""))
 
         # Category-based score bonus with exponential time-decay
