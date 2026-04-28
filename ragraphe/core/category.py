@@ -32,10 +32,22 @@ CATEGORY_LABEL: dict[str, str] = {
 # Time-sensitive categories: frontend shows a staleness warning for these
 TIME_SENSITIVE: set[str] = {"pricing", "event", "schedule", "news"}
 
-# Categories worth showing as satellite dots.
-# "concept" and "general" are excluded — LLM already knows this; no added value.
-# KB-imported content (source="kb") always bypasses this filter.
-SATELLITE_VISIBLE: set[str] = {"pricing", "event", "schedule", "news", "how_to", "resource"}
+# Satellite scoring: base score added on top of snippet quality score.
+# Final score = _snippet_quality() + category_bonus + content_signal_bonuses.
+# Threshold to appear as satellite: SATELLITE_THRESHOLD (defined in main.py, default 0.55).
+# KB-imported content gets +0.30 bonus and always passes regardless of category.
+SATELLITE_SCORE_BONUS: dict[str, float] = {
+    "pricing":  0.25,   # Concrete prices/fees — hard to get from LLM
+    "schedule": 0.25,   # Opening hours / timetables — time-sensitive
+    "event":    0.20,   # Events / festivals — time-sensitive
+    "news":     0.15,   # Recent news — LLM training data may be outdated
+    "how_to":   0.10,   # Step-by-step guides — useful but LLM can approximate
+    "resource": 0.10,   # Resource links — useful but LLM can approximate
+    "concept":  -0.20,  # General knowledge — LLM already knows this
+    "general":  -0.15,  # Uncategorised web content — low signal
+}
+
+SATELLITE_THRESHOLD: float = 0.55   # Minimum score to show as satellite dot
 
 # URL keywords → auto-infer category (used for Wikipedia / DuckDuckGo results)
 _URL_RULES: list[tuple[list[str], str]] = [

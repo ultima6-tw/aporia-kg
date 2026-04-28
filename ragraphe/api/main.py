@@ -2636,25 +2636,28 @@ def node_resources(req: NodeResourcesRequest):
             continue
 
         quality = _snippet_quality(text)
-        # Node name relevance bonus (e.g. Kiyomizudera node: "清水寺" or "清水" in text → +0.15/+0.06)
+        # Node name relevance bonus
         quality += _node_relevance_bonus(text, node_name)
-        # Penalty for complete absence of node name (3+ char name not mentioned at all → embedding coincidence)
+        # Penalty for complete absence of node name
         if len(node_name) >= 3 and node_name not in text and node_name[:2] not in text:
             quality -= 0.12
-        # Geographic soft penalty (many rival cities but goal city still present)
+        # Geographic soft penalty
         quality -= geo_p
-        quality = round(quality, 3)
-        if quality < 0.35:
-            continue        # Quality too low (raised threshold to filter more noise)
 
         db_cat = c.get("category", "general")
         display_cat = _infer_display_category(text, db_cat)
-        is_kb = bool(c.get("source_name", ""))  # KB-imported content always has a source_name
+        is_kb = bool(c.get("source_name", ""))
 
-        # Category filter: only show satellites with added value over plain LLM knowledge.
-        # KB content always passes; crawled "concept" and "general" are filtered out.
-        from ragraphe.core.category import SATELLITE_VISIBLE
-        if not is_kb and display_cat not in SATELLITE_VISIBLE:
+        # Category-based score bonus/penalty
+        from ragraphe.core.category import SATELLITE_SCORE_BONUS, SATELLITE_THRESHOLD
+        quality += SATELLITE_SCORE_BONUS.get(display_cat, 0.0)
+
+        # KB-imported content gets a strong bonus — user brought it in intentionally
+        if is_kb:
+            quality += 0.30
+
+        quality = round(quality, 3)
+        if quality < SATELLITE_THRESHOLD:
             continue
 
         seen_sources.add(src)
