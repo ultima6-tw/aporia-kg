@@ -98,9 +98,19 @@ def chat_quick(messages: list[dict], system: str = "") -> str:
 
 
 def embed(text: str) -> list[float]:
-    """Returns an embedding vector (3072-dim; Ragraphe normally uses Ollama for embedding)."""
+    """Returns an embedding vector for a single text."""
     resp = _client.models.embed_content(
         model=EMBED_MODEL,
         contents=text,
     )
     return resp.embeddings[0].values
+
+
+def embed_batch(texts: list[str]) -> list[list[float]]:
+    """Batch embed multiple texts in a single API call. Much faster than calling embed() in a loop."""
+    if not texts:
+        return []
+    def _call():
+        resp = _client.models.embed_content(model=EMBED_MODEL, contents=texts)
+        return [e.values for e in resp.embeddings]
+    return _with_retry(_call)

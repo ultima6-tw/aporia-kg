@@ -25,9 +25,11 @@ from datetime import datetime, timedelta
 import os as _os
 _LLM_BACKEND = _os.getenv("LLM_BACKEND", "ollama").lower()
 if _LLM_BACKEND == "gemini":
-    from ragraphe.llm.gemini_client import chat, embed
+    from ragraphe.llm.gemini_client import chat, embed, embed_batch
 else:
     from ragraphe.llm.ollama_client import chat, embed
+    def embed_batch(texts: list[str]) -> list[list[float]]:
+        return [embed(t) for t in texts]
 from ragraphe.db.store import (
     get_node, upsert_node, get_matching_sources, _chroma,
     is_url_cached, mark_url_crawled,
@@ -219,23 +221,26 @@ def store_chunks(chunks: list[dict], category: str = "general",
     if not chunks:
         return
     expires_at = _compute_expires(category, ttl_days, topic) or ""
-    raw_chunks.upsert(
-        ids        = [c["id"] for c in chunks],
-        embeddings = [embed(c["text"]) for c in chunks],
-        documents  = [c["text"] for c in chunks],
-        metadatas  = [
-            {
-                "source":      c["source"],
-                "source_name": c.get("source_name", ""),
-                "category":    c.get("category", category),
-                "expires_at":  c.get("expires_at", expires_at),
-                "lang_en":     (_dl := _detect_lang(c["text"])) == "en",
-                "lang_zh":     _dl == "zh",
-                "lang_ja":     _dl == "ja",
-            }
-            for c in chunks
-        ],
-    )
+    _EMBED_BATCH = 50   # Gemini batch embedding limit per API call
+    for i in range(0, len(chunks), _EMBED_BATCH):
+        batch = chunks[i:i + _EMBED_BATCH]
+        raw_chunks.upsert(
+            ids        = [c["id"] for c in batch],
+            embeddings = embed_batch([c["text"] for c in batch]),
+            documents  = [c["text"] for c in batch],
+            metadatas  = [
+                {
+                    "source":      c["source"],
+                    "source_name": c.get("source_name", ""),
+                    "category":    c.get("category", category),
+                    "expires_at":  c.get("expires_at", expires_at),
+                    "lang_en":     (_dl := _detect_lang(c["text"])) == "en",
+                    "lang_zh":     _dl == "zh",
+                    "lang_ja":     _dl == "ja",
+                }
+                for c in batch
+            ],
+        )
     # Mark each source URL as crawled
     source_counts: dict[str, int] = {}
     for c in chunks:
