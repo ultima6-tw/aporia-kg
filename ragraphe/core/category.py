@@ -50,14 +50,14 @@ SATELLITE_SCORE_BONUS: dict[str, float] = {
 
 SATELLITE_THRESHOLD: float = 0.55   # Minimum score to show as satellite dot
 
-# Time-decay for crawled content: max penalty applied linearly over decay_days.
-# penalty = min(age_days / decay_days, 1.0) * max_penalty
-# Only applies when crawled_at metadata is present; missing = no decay.
-SATELLITE_TIME_DECAY: dict[str, tuple[float, float]] = {
-    #               (decay_days, max_penalty)
-    "news":     (3.0,  0.20),   # 3-day-old news loses 0.20 — most of its bonus
-    "travel":   (14.0, 0.10),   # Travel info (prices, hours) drifts over two weeks
-    "product":  (30.0, 0.10),   # Product info changes slowly
+# Exponential time-decay rate (k) per display category.
+# Effective bonus = SATELLITE_SCORE_BONUS[cat] * exp(-k * age_days)
+# Higher k = faster decay. Only applies when crawled_at is present; missing = no decay.
+# Half-life = ln(2) / k ≈ 0.693 / k days.
+SATELLITE_DECAY_RATE: dict[str, float] = {
+    "news":   0.50,   # half-life ≈ 1.4 days  — news goes stale within days
+    "travel": 0.03,   # half-life ≈ 23 days   — travel info changes over weeks
+    "product": 0.01,  # half-life ≈ 69 days   — product info changes slowly
 }
 
 # URL keywords → auto-infer category (used for Wikipedia / DuckDuckGo results)

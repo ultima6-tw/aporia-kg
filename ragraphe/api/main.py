@@ -2649,22 +2649,25 @@ def node_resources(req: NodeResourcesRequest):
         display_cat = _infer_display_category(text, db_cat)
         is_kb = bool(c.get("source_name", ""))
 
-        # Category-based score bonus/penalty
-        from ragraphe.core.category import SATELLITE_SCORE_BONUS, SATELLITE_THRESHOLD, SATELLITE_TIME_DECAY
-        quality += SATELLITE_SCORE_BONUS.get(display_cat, 0.0)
-
-        # Time-decay for time-sensitive crawled content
+        # Category-based score bonus with exponential time-decay
+        # effective_bonus = base_bonus * exp(-k * age_days)
+        from ragraphe.core.category import SATELLITE_SCORE_BONUS, SATELLITE_THRESHOLD, SATELLITE_DECAY_RATE
+        import math
+        base_bonus = SATELLITE_SCORE_BONUS.get(display_cat, 0.0)
         crawled_at = c.get("crawled_at", "")
         decay_penalty = 0.0
-        if crawled_at and display_cat in SATELLITE_TIME_DECAY and not is_kb:
+        if base_bonus > 0 and crawled_at and display_cat in SATELLITE_DECAY_RATE and not is_kb:
             try:
                 from datetime import datetime as _dt
                 age_days = (_dt.utcnow() - _dt.fromisoformat(crawled_at)).total_seconds() / 86400
-                decay_days, max_penalty = SATELLITE_TIME_DECAY[display_cat]
-                decay_penalty = round(min(age_days / decay_days, 1.0) * max_penalty, 3)
-                quality -= decay_penalty
+                k = SATELLITE_DECAY_RATE[display_cat]
+                effective_bonus = round(base_bonus * math.exp(-k * age_days), 3)
+                decay_penalty = round(base_bonus - effective_bonus, 3)
+                quality += effective_bonus
             except Exception:
-                pass
+                quality += base_bonus
+        else:
+            quality += base_bonus
 
         # KB-imported content gets a strong bonus — user brought it in intentionally
         if is_kb:
