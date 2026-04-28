@@ -2462,23 +2462,22 @@ def node_resources(req: NodeResourcesRequest):
     def _infer_display_category(text: str, db_cat: str) -> str:
         """Convert DB-stored category to the display category used by frontend catColors.
         Text content takes priority; DB category is used only as a fallback."""
-        # Direct DB category mapping
-        if db_cat == "concept":
-            return "concept"
+        # DB shortcuts for unambiguous categories — but only if text analysis agrees or gives no signal
         if db_cat == "how_to":
             return "learning"
         if db_cat == "event":
             return "news"
-        # Infer from text content (travel first, then learning, then news)
-        travel_score = len(_TRAVEL_KW.findall(text))
-        learn_score  = len(_LEARN_KW.findall(text))
-        news_score   = len(_NEWS_KW.findall(text))
-        prod_score   = len(_PRODUCT_KW.findall(text))
+        # Always run text analysis — db_cat "concept" used to short-circuit here, causing
+        # pricing/news content stored as concept to miss their bonuses.
+        travel_score  = len(_TRAVEL_KW.findall(text))
+        learn_score   = len(_LEARN_KW.findall(text))
+        news_score    = len(_NEWS_KW.findall(text))
+        prod_score    = len(_PRODUCT_KW.findall(text))
         concept_score = len(_CONCEPT_KW.findall(text))
         scores = {
-            "travel": travel_score,
+            "travel":  travel_score,
             "learning": learn_score,
-            "news": news_score,
+            "news":    news_score,
             "product": prod_score,
             "concept": concept_score,
         }
@@ -2487,6 +2486,9 @@ def node_resources(req: NodeResourcesRequest):
             return best
         if scores[best] == 1:
             return best
+        # No strong text signal — fall back to DB category
+        if db_cat == "concept":
+            return "concept"
         return "general"
 
     # ── Geographic conflict filter (prevent Kyoto nodes pulling Osaka/Tokyo/Chiayi content) ────

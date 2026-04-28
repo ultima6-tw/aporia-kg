@@ -31,7 +31,7 @@ As you talk, the graph evolves organically. Every message adds nodes, resolves u
 | ⚪ Grey | Skipped or ruled out by a prior choice |
 | 🟣 Purple dashed | Deferred — you said "not sure yet" |
 
-Small orbiting dots around nodes are **knowledge satellites** — real content fragments pulled from the local RAG database, relevant to that node.
+Small orbiting dots around nodes are **knowledge satellites** — content fragments scored for relevance and freshness. Only content that genuinely adds value over what the LLM already knows appears as a satellite.
 
 ---
 
@@ -42,7 +42,8 @@ Small orbiting dots around nodes are **knowledge satellites** — real content f
 - **Semantic edges** — nodes connect automatically via cosine similarity (threshold 0.28), no manual wiring
 - **Deep-dive exploration** — click any node or satellite to auto-send a sub-topic breakdown request to the AI
 - **Dynamic theme anchor** — deep-dive uses the most important node in that area as context, not just the initial goal
-- **RAG knowledge satellites** — orbiting dots show real snippets from the local knowledge base
+- **RAG knowledge satellites** — orbiting dots show snippets scored for relevance + freshness; generic content the LLM already knows is filtered out
+- **Satellite scoring** — category-based bonuses (travel/news/product score higher), exponential time-decay for time-sensitive content, auto re-crawl when content goes stale
 - **Content-language filter** — EN / ZH / JA toggle buttons filter which knowledge base languages appear as satellites
 - **Session persistence** — SQLite-backed, survives server restarts
 - **Session history panel** — switch between or restore past sessions
