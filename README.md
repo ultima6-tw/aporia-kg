@@ -52,7 +52,9 @@ Small orbiting dots around nodes are **knowledge satellites** — real content f
 - **Popularity heatmap** — nodes completed by many users get an amber ring + ★ indicator
 - **Coverage visualization** — glass-ball nodes fill up as a topic gets discussed
 - **Markdown export** — done/todo/skip checklist for Notion, Obsidian, etc.
-- **Knowledge base import** — PDF, URL, plain text, topic crawl
+- **Knowledge base import** — PDF, URL, plain text, topic crawl (large PDFs supported — tested with 1866-page instrument manuals)
+- **Grounded node answers** — click any node → KB-backed answer with source citations, not LLM guessing
+- **MCP client** — use Aporia KG as a tool inside Claude Code or any MCP-compatible AI agent
 - **Multi-language** — Traditional Chinese, English, Japanese (UI + AI responses)
 - **PostgreSQL support** — set `DATABASE_URL` to switch from SQLite
 
@@ -231,10 +233,39 @@ ragraphe/
 │   └── freshness.py     # Topic detection + TTL resolution
 ├── db/
 │   └── store.py         # SQLite / PostgreSQL abstraction layer
+├── client/
+│   ├── aporia_client.py # Python client (KB import, search, kb_ask)
+│   └── aporia_mcp.py    # FastMCP server exposing KB tools to AI agents
 └── llm/
     ├── gemini_client.py # Gemini API client (chat + embed + retry)
     └── ollama_client.py # Ollama client
 ```
+
+---
+
+## MCP Integration (Claude Code)
+
+Aporia KG ships a FastMCP client (`ragraphe/client/aporia_mcp.py`) that exposes KB import and Q&A as MCP tools — use it inside Claude Code or any MCP-compatible agent.
+
+### Register the server
+
+```bash
+claude mcp add aporia-kg -s user \
+  -e APORIA_URL=http://localhost:7860 \
+  -- /path/to/aporia-kg/.venv/bin/python -m ragraphe.client.aporia_mcp
+```
+
+### Available MCP tools
+
+| Tool | Description |
+|------|-------------|
+| `kb_import_url` | Crawl a URL and add it to the KB |
+| `kb_import_pdf` | Download a PDF and import page-by-page |
+| `kb_import_text` | Import raw text directly |
+| `kb_search` | Semantic search over KB chunks |
+| `kb_ask` | Grounded Q&A — search KB, build context, answer via Gemini with source citations |
+
+**Example use case:** Import a 1800-page instrument manual, then ask `kb_ask("How do I set up a SCPI trigger on MXO4?")` — you get an answer based on the actual manual content, not LLM guessing.
 
 ---
 
