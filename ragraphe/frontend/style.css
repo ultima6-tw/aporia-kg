@@ -216,6 +216,7 @@
   }
   #chat-header-toolbar {
     display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+    flex-wrap: wrap; row-gap: 4px;
   }
   #chat-header-goal {
     display: flex; align-items: baseline; gap: 8px;
@@ -376,10 +377,11 @@
 
   /* ── Knowledge Panel ── */
   #kb-btn {
-    background: none; border: none; cursor: pointer; padding: 4px;
-    color: #475569; transition: color 0.2s; line-height: 1;
+    background: none; border: 1px solid #1e3a5f; border-radius: 4px;
+    cursor: pointer; padding: 4px 6px;
+    color: #38bdf8; transition: all 0.2s; line-height: 1;
   }
-  #kb-btn:hover { color: #34d399; }
+  #kb-btn:hover { border-color: #38bdf8; color: #7dd3fc; }
   #kb-panel {
     position: fixed; inset: 0; background: rgba(6,10,18,0.85);
     z-index: 200; display: none; align-items: flex-start; justify-content: flex-end;
