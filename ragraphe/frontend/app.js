@@ -99,6 +99,8 @@ const TRANSLATIONS = {
     'kb.pdf_cat.how_to':    '🛠 操作（技術文件）',
     'kb.pdf_cat.event':     '📅 活動（會議資料）',
     'kb.recent':            '最近加入的來源',
+    'kb.select_all':        '全選',
+    'kb.deselect_all':      '全取消',
     'kb.no_data':           '尚無資料',
     'kb.fetching':          '爬取中...',
     'kb.load_fail':         '載入失敗',
@@ -235,6 +237,8 @@ const TRANSLATIONS = {
     'kb.pdf_cat.how_to':    '🛠 How-to (technical docs)',
     'kb.pdf_cat.event':     '📅 Event (conference materials)',
     'kb.recent':            'Recently Added Sources',
+    'kb.select_all':        'All',
+    'kb.deselect_all':      'None',
     'kb.no_data':           'No data yet',
     'kb.fetching':          'Fetching...',
     'kb.load_fail':         'Load failed',
@@ -370,6 +374,8 @@ const TRANSLATIONS = {
     'kb.pdf_cat.how_to':    '🛠 操作（技術文書）',
     'kb.pdf_cat.event':     '📅 イベント（会議資料）',
     'kb.recent':            '最近追加したソース',
+    'kb.select_all':        '全選択',
+    'kb.deselect_all':      '全解除',
     'kb.no_data':           'データなし',
     'kb.fetching':          '取得中...',
     'kb.load_fail':         '読み込み失敗',
@@ -2875,7 +2881,14 @@ async function toggleSourceFilter(source, checkbox) {
   });
 }
 
+let _allKBSources = [];
+
 function renderKBSources(sources) {
+  _allKBSources = sources;
+  _renderKBSourceRows(sources);
+}
+
+function _renderKBSourceRows(sources) {
   const el = document.getElementById("kb-url-list");
   if (!sources.length) {
     el.innerHTML = '<div style="color:#334155;font-size:12px">尚無資料</div>';
@@ -2901,6 +2914,36 @@ function renderKBSources(sources) {
         title="刪除此來源所有 chunks">✕</button>
     </div>`;
   }).join("");
+}
+
+function filterKBSources() {
+  const q = (document.getElementById('kb-src-search')?.value || '').toLowerCase();
+  const filtered = q ? _allKBSources.filter(s =>
+    (s.source_name || s.source).toLowerCase().includes(q) || s.source.toLowerCase().includes(q)
+  ) : _allKBSources;
+  _renderKBSourceRows(filtered);
+}
+
+async function selectAllKBSources(select) {
+  if (!sessionId) return;
+  const q = (document.getElementById('kb-src-search')?.value || '').toLowerCase();
+  const targets = q ? _allKBSources.filter(s =>
+    (s.source_name || s.source).toLowerCase().includes(q) || s.source.toLowerCase().includes(q)
+  ) : _allKBSources;
+  for (const s of targets) {
+    if (select) {
+      _kbActiveSourceFilter.delete(s.source);
+    } else {
+      _kbActiveSourceFilter.add(s.source);
+    }
+  }
+  const included = _allKBSources.filter(s => !_kbActiveSourceFilter.has(s.source)).map(s => s.source);
+  const excluded = [..._kbActiveSourceFilter];
+  await fetch(`/api/sessions/${sessionId}/filter_sources`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sources: excluded }),
+  });
+  filterKBSources();
 }
 
 async function kbDeleteSource(source, btn) {
