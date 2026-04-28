@@ -2647,11 +2647,19 @@ def node_resources(req: NodeResourcesRequest):
         if quality < 0.35:
             continue        # Quality too low (raised threshold to filter more noise)
 
+        db_cat = c.get("category", "general")
+        display_cat = _infer_display_category(text, db_cat)
+        is_kb = bool(c.get("source_name", ""))  # KB-imported content always has a source_name
+
+        # Category filter: only show satellites with added value over plain LLM knowledge.
+        # KB content always passes; crawled "concept" and "general" are filtered out.
+        from ragraphe.core.category import SATELLITE_VISIBLE
+        if not is_kb and display_cat not in SATELLITE_VISIBLE:
+            continue
+
         seen_sources.add(src)
         title = _extract_title(text)
         domain = _domain_label(src)
-        db_cat = c.get("category", "general")
-        display_cat = _infer_display_category(text, db_cat)
         source_name = c.get("source_name", "")
 
         candidates.append({

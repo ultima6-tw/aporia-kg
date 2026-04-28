@@ -32,6 +32,11 @@ CATEGORY_LABEL: dict[str, str] = {
 # Time-sensitive categories: frontend shows a staleness warning for these
 TIME_SENSITIVE: set[str] = {"pricing", "event", "schedule", "news"}
 
+# Categories worth showing as satellite dots.
+# "concept" and "general" are excluded — LLM already knows this; no added value.
+# KB-imported content (source="kb") always bypasses this filter.
+SATELLITE_VISIBLE: set[str] = {"pricing", "event", "schedule", "news", "how_to", "resource"}
+
 # URL keywords → auto-infer category (used for Wikipedia / DuckDuckGo results)
 _URL_RULES: list[tuple[list[str], str]] = [
     (["ticket", "admission", "entry", "票", "入場", "門票"],     "pricing"),
