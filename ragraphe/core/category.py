@@ -36,13 +36,14 @@ TIME_SENSITIVE: set[str] = {"pricing", "event", "schedule", "news"}
 # Final score = _snippet_quality() + category_bonus + content_signal_bonuses.
 # Threshold to appear as satellite: SATELLITE_THRESHOLD (defined in main.py, default 0.55).
 # KB-imported content gets +0.30 bonus and always passes regardless of category.
+# Keys match the *display* categories returned by _infer_display_category() in main.py:
+# travel, learning, news, product, concept, general
+# DB-only categories (pricing, schedule, event, how_to, resource) map to these via _infer_display_category.
 SATELLITE_SCORE_BONUS: dict[str, float] = {
-    "pricing":  0.25,   # Concrete prices/fees — hard to get from LLM
-    "schedule": 0.25,   # Opening hours / timetables — time-sensitive
-    "event":    0.20,   # Events / festivals — time-sensitive
-    "news":     0.15,   # Recent news — LLM training data may be outdated
-    "how_to":   0.10,   # Step-by-step guides — useful but LLM can approximate
-    "resource": 0.10,   # Resource links — useful but LLM can approximate
+    "travel":   0.20,   # Destination-specific info — highly contextual, LLM may be outdated
+    "product":  0.20,   # Specific product/tool info — concrete, hard to guess
+    "news":     0.15,   # Recent events — LLM training data may be outdated
+    "learning": 0.10,   # Tutorials / how-to — useful but LLM can approximate
     "concept":  -0.20,  # General knowledge — LLM already knows this
     "general":  -0.15,  # Uncategorised web content — low signal
 }
@@ -53,11 +54,10 @@ SATELLITE_THRESHOLD: float = 0.55   # Minimum score to show as satellite dot
 # penalty = min(age_days / decay_days, 1.0) * max_penalty
 # Only applies when crawled_at metadata is present; missing = no decay.
 SATELLITE_TIME_DECAY: dict[str, tuple[float, float]] = {
-    #              (decay_days, max_penalty)
+    #               (decay_days, max_penalty)
     "news":     (3.0,  0.20),   # 3-day-old news loses 0.20 — most of its bonus
-    "event":    (7.0,  0.15),   # Events fade over a week
-    "schedule": (30.0, 0.10),   # Schedules change slowly
-    "pricing":  (14.0, 0.10),   # Prices drift over two weeks
+    "travel":   (14.0, 0.10),   # Travel info (prices, hours) drifts over two weeks
+    "product":  (30.0, 0.10),   # Product info changes slowly
 }
 
 # URL keywords → auto-infer category (used for Wikipedia / DuckDuckGo results)
