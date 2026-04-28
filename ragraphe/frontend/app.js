@@ -26,6 +26,8 @@ const TRANSLATIONS = {
     'rag.empty':            '目前尚無相關資料',
     'rag.label':            '相關資料',
     'rag.autocrawled':      '相關資料 (已自動補充)',
+    'kb.answer_label':      '知識庫回答',
+    'rag.sources_label':    '原始來源',
     'rag.time_sensitive':   '⚠️ 資訊可能已更新',
     'rag.open_pdf':         '開啟 PDF',
     // Category
@@ -171,6 +173,8 @@ const TRANSLATIONS = {
     'rag.empty':            'No related content yet',
     'rag.label':            'Related Content',
     'rag.autocrawled':      'Related Content (auto-fetched)',
+    'kb.answer_label':      'Knowledge Base Answer',
+    'rag.sources_label':    'Raw sources',
     'rag.time_sensitive':   '⚠️ May be outdated — verify before use',
     'rag.open_pdf':         'Open PDF',
     'cat.concept':          '📖 Concept',
@@ -309,6 +313,8 @@ const TRANSLATIONS = {
     'rag.empty':            '関連コンテンツはまだありません',
     'rag.label':            '関連コンテンツ',
     'rag.autocrawled':      '関連コンテンツ（自動取得）',
+    'kb.answer_label':      'ナレッジベースの回答',
+    'rag.sources_label':    '元ソース',
     'rag.time_sensitive':   '⚠️ 情報が古い可能性があります',
     'rag.open_pdf':         'PDFを開く',
     'cat.concept':          '📖 概念',
@@ -2373,32 +2379,72 @@ async function fetchPopupRAG(nodeId, nodeLabel, nodeStatus) {
 
   if (!sessionId) { body.innerHTML = ""; return; }
   try {
-    const res  = await fetch("/api/expand", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, node_id: nodeId }),
-    });
-    const data = await res.json();
+    // Fire both requests in parallel: raw chunks + kb_ask grounded answer
+    const nodeDesc = nodeData[nodeId]?._description || '';
+    const query = nodeDesc ? `${nodeLabel}: ${nodeDesc}` : nodeLabel;
+    const [expandRes, askRes] = await Promise.all([
+      fetch("/api/expand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, node_id: nodeId }),
+      }),
+      fetch("/api/knowledge/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, n: 6, lang: currentLang }),
+      }),
+    ]);
+    const [data, askData] = await Promise.all([expandRes.json(), askRes.json()]);
     if (_popupNodeId !== nodeId) return;  // 已換節點，捨棄
-    if (!data.chunks || data.chunks.length === 0) {
+
+    const hasChunks = data.chunks && data.chunks.length > 0;
+    const hasAnswer = askData.answer && askData.answer.trim().length > 20 &&
+                      !askData.answer.startsWith("No relevant content");
+
+    if (!hasChunks && !hasAnswer) {
       body.innerHTML = `<div style="font-size:11px;color:#334155">${t('rag.empty')}</div>`;
       preview.style.display = 'none';
       return;
     }
 
     // 存入前端快取
-    _ragCache[nodeId] = data;
-    _expandedNodes.add(nodeId);
+    if (hasChunks) {
+      _ragCache[nodeId] = data;
+      _expandedNodes.add(nodeId);
+    }
 
-    body.innerHTML = _renderChunks(data.chunks, data.crawled);
+    // Render: grounded answer first (if available), then raw chunks as collapsible sources
+    let html = '';
+    if (hasAnswer) {
+      const sourcesHtml = (askData.sources || [])
+        .map(s => `<span class="kb-answer-source">${escapeHtml(s)}</span>`)
+        .join('');
+      html += `<div class="kb-answer-block">
+        <div class="kb-answer-label">📖 ${t('kb.answer_label') || 'Knowledge Base Answer'}</div>
+        <div class="kb-answer-text">${escapeHtml(askData.answer)}</div>
+        ${sourcesHtml ? `<div class="kb-answer-sources">${sourcesHtml}</div>` : ''}
+      </div>`;
+      // Popup inline preview from answer
+      preview.textContent = askData.answer.slice(0, 120) + (askData.answer.length > 120 ? '…' : '');
+      preview.style.display = 'block';
+    }
 
-    // Popup inline preview（第一個 chunk 摘要）
-    const firstText = data.chunks[0].text;
-    preview.textContent = firstText.slice(0, 120) + (firstText.length > 120 ? '…' : '');
-    preview.style.display = 'block';
+    if (hasChunks) {
+      if (hasAnswer) {
+        html += `<details class="kb-chunks-details">
+          <summary class="kb-chunks-summary">${t('rag.sources_label') || 'Raw sources'} (${data.chunks.length})</summary>
+          ${_renderChunks(data.chunks, data.crawled)}
+        </details>`;
+      } else {
+        html += _renderChunks(data.chunks, data.crawled);
+        const firstText = data.chunks[0].text;
+        preview.textContent = firstText.slice(0, 120) + (firstText.length > 120 ? '…' : '');
+        preview.style.display = 'block';
+      }
+      showNodeImageBubbles(nodeId, data.chunks);
+    }
 
-    // 在節點附近顯示圖片浮動小卡
-    showNodeImageBubbles(nodeId, data.chunks);
+    body.innerHTML = html;
   } catch (_) {
     body.innerHTML = "";
     preview.style.display = 'none';
