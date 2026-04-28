@@ -1194,7 +1194,7 @@ function initEmptyGraph(mode) {
       const sc = graph3D.graph2ScreenCoords(node.x || 0, node.y || 0);
       showNodePopup(n, sc);
     })
-    .onBackgroundClick(() => { closeNodePopup(); _hideHoverTooltip(); })
+    .onBackgroundClick(() => { closeNodePopup(); _hideHoverTooltip(); closeAddNodeForm(); })
     .onNodeHover((node) => {
       container.style.cursor = node ? 'pointer' : 'default';
       if (node && nodeData[node.id]) {
@@ -1229,6 +1229,21 @@ function initEmptyGraph(mode) {
     const _markUserZoomed = () => { _userHasZoomed = true; };
     _graphCanvas.addEventListener('wheel',       _markUserZoomed, { passive: true });
     _graphCanvas.addEventListener('pointerdown', _markUserZoomed, { passive: true });
+    _graphCanvas.addEventListener('contextmenu', (evt) => {
+      evt.preventDefault();
+      if (!sessionId) return;
+      const form = document.getElementById('add-node-form');
+      if (!form) return;
+      closeNodePopup(); _hideHoverTooltip();
+      form.style.display = 'block';
+      const x = Math.min(evt.clientX, window.innerWidth  - 260);
+      const y = Math.min(evt.clientY, window.innerHeight - 140);
+      form.style.left   = x + 'px';
+      form.style.top    = y + 'px';
+      form.style.right  = 'auto';
+      form.style.bottom = 'auto';
+      setTimeout(() => document.getElementById('add-node-name')?.focus(), 50);
+    });
   }
 
   // 降低排斥力 + 加自訂重力，讓孤立元件不會飛太遠

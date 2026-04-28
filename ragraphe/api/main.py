@@ -2731,15 +2731,16 @@ def node_resources(req: NodeResourcesRequest):
     # Use LLM to rewrite each satellite's name to describe what it contributes to this specific node.
     if resources:
         try:
+            _title_reply_lang = _LANG_MAP.get(session_lang, "English")
             items = "\n".join(
-                f"[{i}] 節點：{node_name}\n片段：{r['snippet'][:120]}"
+                f"[{i}] Node: {node_name}\nSnippet: {r['snippet'][:120]}"
                 for i, r in enumerate(resources)
             )
             raw = _chat_quick(
                 [{"role": "user", "content":
-                  f"為以下知識片段各生成一個標題（5-10字），說明這個片段與節點的關係，讓讀者一眼看出關聯。\n"
-                  f"格式：[序號] 標題\n\n{items}"}],
-                system="只輸出格式為[0] 標題的短標題，每行一個，不加解釋。",
+                  f"For each snippet below, generate a short title (5-10 words) in {_title_reply_lang} "
+                  f"that explains how this snippet relates to the node. Format: [index] Title\n\n{items}"}],
+                system=f"Output only lines in format [0] Title, one per line, in {_title_reply_lang}. No explanation.",
             )
             for line in raw.strip().splitlines():
                 m = re.match(r'\[(\d+)\]\s*(.+)', line.strip())
