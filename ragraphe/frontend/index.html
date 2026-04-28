@@ -119,7 +119,7 @@
         <button class="lang-btn" data-lang="ja" onclick="setLang('ja')"
           style="background:none;border:1px solid #1e293b;border-radius:4px;color:#475569;
                  font-size:10px;padding:2px 6px;cursor:pointer;transition:all 0.15s">日本語</button>
-        <button id="kb-btn" onclick="openKB()" title="知識庫">
+        <button id="kb-btn" onclick="openKB()" title="知識庫" data-i18n-title="kb.title">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
           </svg>
@@ -186,7 +186,7 @@
 <div id="kb-panel" onclick="if(event.target===this) closeKB()">
   <div id="kb-inner">
     <div id="kb-header">
-      <h2>知識庫</h2>
+      <h2 data-i18n="kb.title">知識庫</h2>
       <div id="kb-header-right">
         <span id="kb-stats">載入中...</span>
         <button id="kb-close" onclick="closeKB()">✕</button>
@@ -195,7 +195,7 @@
     <div id="kb-body">
       <!-- 新增內容 -->
       <div>
-        <div class="kb-section-title">新增內容</div>
+        <div class="kb-section-title" data-i18n="kb.add_section">新增內容</div>
         <div class="kb-tabs" style="flex-wrap:wrap">
           <button class="kb-tab active" onclick="switchKBTab('crawl', this)" data-i18n="kb.tab.crawl">主題爬取</button>
           <button class="kb-tab" onclick="switchKBTab('url', this)" data-i18n="kb.tab.url">URL 爬取</button>
@@ -226,16 +226,16 @@
         <!-- URL tab -->
         <div id="kb-tab-url" class="kb-tab-content">
           <input id="kb-url" class="kb-input" placeholder="https://..." />
-          <input id="kb-url-name" class="kb-input" placeholder="來源名稱（選填）" />
-          <button class="kb-btn" onclick="kbAddURL()">抓取並加入知識庫</button>
+          <input id="kb-url-name" class="kb-input" data-i18n-ph="kb.url_name_ph" placeholder="來源名稱（選填）" />
+          <button class="kb-btn" onclick="kbAddURL()" data-i18n="kb.url_btn">抓取並加入知識庫</button>
           <div id="kb-url-result"></div>
         </div>
 
         <!-- Text tab -->
         <div id="kb-tab-text" class="kb-tab-content">
-          <textarea id="kb-text" class="kb-textarea" placeholder="貼入文字內容..."></textarea>
-          <input id="kb-text-source" class="kb-input" placeholder="來源名稱（例：論文名稱）" />
-          <button class="kb-btn" onclick="kbAddText()">加入知識庫</button>
+          <textarea id="kb-text" class="kb-textarea" data-i18n-ph="kb.text_ph" placeholder="貼入文字內容..."></textarea>
+          <input id="kb-text-source" class="kb-input" data-i18n-ph="kb.text_src_ph" placeholder="來源名稱（例：論文名稱）" />
+          <button class="kb-btn" onclick="kbAddText()" data-i18n="kb.text_btn">加入知識庫</button>
           <div id="kb-text-result"></div>
         </div>
 
@@ -243,24 +243,24 @@
         <div id="kb-tab-jsonl" class="kb-tab-content">
           <textarea id="kb-jsonl" class="kb-textarea"
             placeholder='每行一個 JSON，格式：{"text":"內容","source":"來源"}&#10;{"text":"第二段","source":"paper.pdf"}'></textarea>
-          <input id="kb-jsonl-source" class="kb-input" placeholder="預設來源（若行內無 source 欄位）" />
-          <button class="kb-btn" onclick="kbAddJSONL()">匯入</button>
+          <input id="kb-jsonl-source" class="kb-input" data-i18n-ph="kb.jsonl_src_ph" placeholder="預設來源（若行內無 source 欄位）" />
+          <button class="kb-btn" onclick="kbAddJSONL()" data-i18n="kb.jsonl_btn">匯入</button>
           <div id="kb-jsonl-result"></div>
         </div>
 
         <!-- PDF tab -->
         <div id="kb-tab-pdf" class="kb-tab-content">
-          <div style="font-size:11px;color:#475569;margin-bottom:4px">上傳 PDF，自動解析文字並加入知識庫</div>
+          <div style="font-size:11px;color:#475569;margin-bottom:4px" data-i18n="kb.pdf_hint">上傳 PDF，自動解析文字並加入知識庫</div>
           <input id="kb-pdf-file" type="file" accept=".pdf" class="kb-input"
                  style="padding:6px;cursor:pointer" />
-          <input id="kb-pdf-name" class="kb-input" placeholder="顯示名稱（選填，預設用檔名）" />
+          <input id="kb-pdf-name" class="kb-input" data-i18n-ph="kb.pdf_name_ph" placeholder="顯示名稱（選填，預設用檔名）" />
           <select id="kb-pdf-category" class="kb-input">
-            <option value="concept">📖 概念（論文、教科書）</option>
-            <option value="resource">🔗 資源（參考手冊）</option>
-            <option value="how_to">🛠 操作（技術文件）</option>
-            <option value="event">📅 活動（會議資料）</option>
+            <option value="concept" data-i18n="kb.pdf_cat.concept">📖 概念（論文、教科書）</option>
+            <option value="resource" data-i18n="kb.pdf_cat.resource">🔗 資源（參考手冊）</option>
+            <option value="how_to"  data-i18n="kb.pdf_cat.how_to">🛠 操作（技術文件）</option>
+            <option value="event"   data-i18n="kb.pdf_cat.event">📅 活動（會議資料）</option>
           </select>
-          <button class="kb-btn" onclick="kbUploadPDF()">解析並加入知識庫</button>
+          <button class="kb-btn" onclick="kbUploadPDF()" data-i18n="kb.pdf_btn">解析並加入知識庫</button>
           <div id="kb-pdf-result"></div>
         </div>
       </div>
@@ -270,7 +270,7 @@
         <div class="kb-section-title" data-i18n="kb.recent">最近加入的來源</div>
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
           <input id="kb-src-search" class="kb-input" style="flex:1;padding:5px 8px;font-size:12px"
-            placeholder="Filter sources..." oninput="filterKBSources()" />
+            data-i18n-ph="kb.src_search_ph" placeholder="Filter sources..." oninput="filterKBSources()" />
           <button onclick="selectAllKBSources(true)"  style="flex-shrink:0;border:1px solid #1e3a5f;background:none;border-radius:4px;color:#38bdf8;font-size:11px;padding:4px 8px;cursor:pointer" data-i18n="kb.select_all">全選</button>
           <button onclick="selectAllKBSources(false)" style="flex-shrink:0;border:1px solid #1e3a5f;background:none;border-radius:4px;color:#64748b;font-size:11px;padding:4px 8px;cursor:pointer" data-i18n="kb.deselect_all">全取消</button>
         </div>
