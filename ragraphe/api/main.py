@@ -2649,8 +2649,19 @@ def node_resources(req: NodeResourcesRequest):
         is_kb = bool(c.get("source_name", ""))
 
         # Category-based score bonus/penalty
-        from ragraphe.core.category import SATELLITE_SCORE_BONUS, SATELLITE_THRESHOLD
+        from ragraphe.core.category import SATELLITE_SCORE_BONUS, SATELLITE_THRESHOLD, SATELLITE_TIME_DECAY
         quality += SATELLITE_SCORE_BONUS.get(display_cat, 0.0)
+
+        # Time-decay for time-sensitive crawled content
+        crawled_at = c.get("crawled_at", "")
+        if crawled_at and display_cat in SATELLITE_TIME_DECAY and not is_kb:
+            try:
+                from datetime import datetime as _dt
+                age_days = (_dt.utcnow() - _dt.fromisoformat(crawled_at)).total_seconds() / 86400
+                decay_days, max_penalty = SATELLITE_TIME_DECAY[display_cat]
+                quality -= round(min(age_days / decay_days, 1.0) * max_penalty, 3)
+            except Exception:
+                pass
 
         # KB-imported content gets a strong bonus — user brought it in intentionally
         if is_kb:

@@ -49,6 +49,17 @@ SATELLITE_SCORE_BONUS: dict[str, float] = {
 
 SATELLITE_THRESHOLD: float = 0.55   # Minimum score to show as satellite dot
 
+# Time-decay for crawled content: max penalty applied linearly over decay_days.
+# penalty = min(age_days / decay_days, 1.0) * max_penalty
+# Only applies when crawled_at metadata is present; missing = no decay.
+SATELLITE_TIME_DECAY: dict[str, tuple[float, float]] = {
+    #              (decay_days, max_penalty)
+    "news":     (3.0,  0.20),   # 3-day-old news loses 0.20 — most of its bonus
+    "event":    (7.0,  0.15),   # Events fade over a week
+    "schedule": (30.0, 0.10),   # Schedules change slowly
+    "pricing":  (14.0, 0.10),   # Prices drift over two weeks
+}
+
 # URL keywords → auto-infer category (used for Wikipedia / DuckDuckGo results)
 _URL_RULES: list[tuple[list[str], str]] = [
     (["ticket", "admission", "entry", "票", "入場", "門票"],     "pricing"),
