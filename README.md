@@ -96,9 +96,19 @@ User input
 ### Prerequisites
 
 - Python 3.11+
-- A [Gemini API key](https://aistudio.google.com/) — free tier works fine
+- A [Gemini API key](https://aistudio.google.com/) (free tier) — or [Ollama](https://ollama.ai) for fully local mode
 
-### 1. Clone and install
+### One-line install (macOS / Linux)
+
+```bash
+git clone https://github.com/ultima6-tw/aporia-kg.git
+cd aporia-kg
+bash install.sh
+```
+
+The script checks your Python version, creates a virtual environment, installs dependencies, asks whether you want Gemini or Ollama, writes `.env`, and optionally starts the server and opens your browser.
+
+### Manual install
 
 ```bash
 git clone https://github.com/ultima6-tw/aporia-kg.git
@@ -106,30 +116,15 @@ cd aporia-kg
 
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-
 pip install -r requirements.txt
-```
 
-### 2. Configure
-
-```bash
 cp .env.example .env
+# edit .env: set LLM_BACKEND=gemini and GEMINI_API_KEY=your_key_here
+
+uvicorn ragraphe.api.main:app --port 7860
 ```
 
-Open `.env` and fill in your Gemini API key:
-
-```
-LLM_BACKEND=gemini
-GEMINI_API_KEY=your_key_here
-```
-
-### 3. Run
-
-```bash
-uvicorn ragraphe.api.main:app --reload --port 7860
-```
-
-Open [http://localhost:7860](http://localhost:7860), type a goal, and watch the graph grow.
+Open [http://localhost:7860](http://localhost:7860). The welcome screen shows 5 example cards — click one to start immediately, or type your own goal.
 
 ---
 
