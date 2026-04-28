@@ -106,11 +106,10 @@ def embed(text: str) -> list[float]:
     return resp.embeddings[0].values
 
 
-def embed_batch(texts: list[str]) -> list[list[float]]:
-    """Batch embed multiple texts in a single API call. Much faster than calling embed() in a loop."""
+def embed_batch(texts: list[str], max_workers: int = 8) -> list[list[float]]:
+    """Embed multiple texts concurrently. Faster than sequential embed() calls."""
     if not texts:
         return []
-    def _call():
-        resp = _client.models.embed_content(model=EMBED_MODEL, contents=texts)
-        return [e.values for e in resp.embeddings]
-    return _with_retry(_call)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(embed, texts))
