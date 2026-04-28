@@ -2839,6 +2839,27 @@ async function loadKBStatus() {
   }
 }
 
+let _kbActiveSourceFilter = new Set(); // empty = all active
+
+async function toggleSourceFilter(source, checkbox) {
+  if (!sessionId) return;
+  if (checkbox.checked) {
+    _kbActiveSourceFilter.delete(source);
+  } else {
+    _kbActiveSourceFilter.add(source);
+  }
+  // Convert exclusion set to inclusion list (all sources minus excluded)
+  const allSources = [...document.querySelectorAll('.kb-src-check')].map(el => el.dataset.src);
+  const active = allSources.filter(s => !_kbActiveSourceFilter.has(s));
+  // If all active → send [] (no filter); otherwise send the active list
+  const filterSources = active.length === allSources.length ? [] : active;
+  await fetch(`/api/sessions/${sessionId}/filter_sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filter_sources: filterSources }),
+  });
+}
+
 function renderKBSources(sources) {
   const el = document.getElementById("kb-url-list");
   if (!sources.length) {
@@ -2850,7 +2871,12 @@ function renderKBSources(sources) {
     const icon    = catIcon[s.category] || '📄';
     const display = escapeHtml(s.source_name && s.source_name !== s.source ? s.source_name : s.source);
     const srcFull = escapeHtml(s.source);
+    const isActive = !_kbActiveSourceFilter.has(s.source);
     return `<div class="kb-url-row" style="display:flex;align-items:center;gap:6px;white-space:normal;overflow:visible">
+      <input type="checkbox" class="kb-src-check" data-src="${escapeHtml(s.source)}"
+        ${isActive ? 'checked' : ''} title="包含此來源"
+        onchange="toggleSourceFilter(${JSON.stringify(s.source)}, this)"
+        style="flex-shrink:0;cursor:pointer;accent-color:#38bdf8">
       <span style="flex-shrink:0">${icon}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${srcFull}">${display}</span>
       <span style="flex-shrink:0;color:#1e3a5f;font-size:10px">${s.count} chunks</span>

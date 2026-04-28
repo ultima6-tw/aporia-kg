@@ -434,25 +434,40 @@ _LANG_FLAG = {"en": "lang_en", "zh": "lang_zh", "ja": "lang_ja"}
 _ALL_LANGS  = set(_LANG_FLAG)
 
 def query_raw_chunks(node_embedding: list[float], n: int = 5,
-                     filter_langs: list[str] | None = None) -> list[dict]:
+                     filter_langs: list[str] | None = None,
+                     filter_sources: list[str] | None = None) -> list[dict]:
     """
     filter_langs: languages to include, e.g. ["en","zh"]. None or all-3 = no filter.
-    Old chunks without lang flags are always included (no flag = no restriction).
+    filter_sources: source URLs/names to include. None or [] = no filter (all sources).
     """
     if raw_chunks.count() == 0:
         return []
     now = datetime.now().isoformat()
     active = [l for l in (filter_langs or []) if l in _LANG_FLAG]
+
+    where_clauses = []
+    if active and set(active) != _ALL_LANGS:
+        flags = [_LANG_FLAG[l] for l in active]
+        lang_clause = (
+            {flags[0]: {"$eq": True}} if len(flags) == 1
+            else {"$or": [{f: {"$eq": True}} for f in flags]}
+        )
+        where_clauses.append(lang_clause)
+    if filter_sources:
+        src_clause = (
+            {"source": {"$eq": filter_sources[0]}} if len(filter_sources) == 1
+            else {"$or": [{"source": {"$eq": s}} for s in filter_sources]}
+        )
+        where_clauses.append(src_clause)
+
     query_kwargs: dict = {
         "query_embeddings": [node_embedding],
         "n_results": min(n * 2, raw_chunks.count()),
     }
-    if active and set(active) != _ALL_LANGS:
-        flags = [_LANG_FLAG[l] for l in active]
-        query_kwargs["where"] = (
-            {flags[0]: {"$eq": True}} if len(flags) == 1
-            else {"$or": [{f: {"$eq": True}} for f in flags]}
-        )
+    if len(where_clauses) == 1:
+        query_kwargs["where"] = where_clauses[0]
+    elif len(where_clauses) > 1:
+        query_kwargs["where"] = {"$and": where_clauses}
     results = raw_chunks.query(**query_kwargs)
     chunks = []
     for i, chunk_id in enumerate(results["ids"][0]):

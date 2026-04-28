@@ -245,6 +245,7 @@ def _interpolate_bridge_rag(
     cluster_a_ids: list, cluster_b_ids: list,
     embeddings: dict, n_probes: int = 3, n_results: int = 3,
     filter_langs: list[str] | None = None,
+    filter_sources: list[str] | None = None,
 ) -> list[dict]:
     """
     Centroid interpolation bridge discovery.
@@ -269,7 +270,7 @@ def _interpolate_bridge_rag(
     for t in ts:
         probe = ((1 - t) * centroid_a + t * centroid_b).tolist()
         try:
-            chunks = query_raw_chunks(probe, n=n_results, filter_langs=filter_langs)
+            chunks = query_raw_chunks(probe, n=n_results, filter_langs=filter_langs, filter_sources=filter_sources)
             for c in chunks:
                 key = c.get("source", "") + c.get("text", "")[:80]
                 if key not in seen_sources:
@@ -1051,6 +1052,7 @@ def _process_message(session_id: str, user_text: str):
             interp_chunks = _interpolate_bridge_rag(
                 best_ca, best_cb, snap_embs, n_probes=3, n_results=3,
                 filter_langs=session.get("filter_langs", _ALL_FILTER_LANGS),
+                filter_sources=session.get("filter_sources") or None,
             )
             print(f"[P4] interp done: {_time.time()-_t0:.1f}s, "
                   f"chunks={len(interp_chunks)}, centroid_dist={best_dist:.3f}", flush=True)
@@ -1579,7 +1581,8 @@ def start(req: StartRequest):
         "topic":        _topic,   # detected from freshness.yaml for TTL-aware crawling
         "user_id":      req.user_id,
         "lang":         req.lang,
-        "filter_langs": _ALL_FILTER_LANGS[:],  # show all languages by default
+        "filter_langs":    _ALL_FILTER_LANGS[:],  # show all languages by default
+        "filter_sources":  [],                    # [] = all sources; non-empty = only listed sources
         "created_at":   _dt.now().isoformat(),
         "messages":     [],
         "nodes":        {},      # id → {id, name, description, status, source, exclusive}
@@ -1950,6 +1953,17 @@ def set_filter_langs(session_id: str, body: dict):
     return {"ok": True, "filter_langs": data["filter_langs"]}
 
 
+@app.post("/api/sessions/{session_id}/filter_sources")
+def set_filter_sources(session_id: str, body: dict):
+    """Update which KB sources are visible in this session. Empty list = all sources."""
+    data = sessions.get(session_id)
+    if not data:
+        return {"ok": False, "error": "Session not found"}
+    sources = body.get("filter_sources", [])
+    data["filter_sources"] = sources if isinstance(sources, list) else []
+    return {"ok": True, "filter_sources": data["filter_sources"]}
+
+
 @app.delete("/api/sessions/{session_id}")
 def remove_session(session_id: str):
     """Delete the specified session."""
@@ -2240,11 +2254,12 @@ def node_resources(req: NodeResourcesRequest):
     if not query_text:
         return {"resources": []}
 
-    filter_langs = data.get("filter_langs", _ALL_FILTER_LANGS)
+    filter_langs   = data.get("filter_langs", _ALL_FILTER_LANGS)
+    filter_sources = data.get("filter_sources") or None
 
     try:
         vec = embed(query_text[:500])
-        chunks = query_raw_chunks(vec, n=12, filter_langs=filter_langs)
+        chunks = query_raw_chunks(vec, n=12, filter_langs=filter_langs, filter_sources=filter_sources)
     except Exception:
         return {"resources": []}
 
