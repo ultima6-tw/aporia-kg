@@ -35,6 +35,28 @@
       <button onclick="zoomFit()" title="適應視窗">⊙</button>
       <button onclick="zoomOut()" title="縮小">－</button>
       <button id="layout-toggle-btn" onclick="openLayoutMenu(event)" title="切換佈局" style="font-size:11px;padding:2px 5px">⊞</button>
+      <button id="auto-nodes-btn" onclick="toggleAutoNodes()" title="AI 自動生成節點" style="font-size:11px;padding:2px 5px;border-color:#22c55e;color:#22c55e">✦</button>
+      <button onclick="openAddNodeForm(event)" title="手動新增節點" style="font-size:13px;padding:2px 5px">＋</button>
+    </div>
+    <!-- Manual add node form -->
+    <div id="add-node-form" style="display:none;position:fixed;z-index:8100;
+      background:#0d1424;border:1px solid #334155;border-radius:10px;
+      padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,0.6);min-width:220px;">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:600">Add Node</div>
+      <input id="add-node-name" type="text" placeholder="Name…"
+        style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;
+          border-radius:6px;color:#e2e8f0;font-size:12px;padding:5px 8px;margin-bottom:6px;outline:none"
+        onkeydown="if(event.key==='Enter')submitAddNode();if(event.key==='Escape')closeAddNodeForm()">
+      <input id="add-node-desc" type="text" placeholder="Description (optional)…"
+        style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;
+          border-radius:6px;color:#e2e8f0;font-size:12px;padding:5px 8px;margin-bottom:8px;outline:none"
+        onkeydown="if(event.key==='Enter')submitAddNode();if(event.key==='Escape')closeAddNodeForm()">
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        <button onclick="closeAddNodeForm()" style="background:none;border:1px solid #334155;
+          border-radius:5px;color:#94a3b8;font-size:11px;padding:3px 10px;cursor:pointer">Cancel</button>
+        <button onclick="submitAddNode()" style="background:#2563eb;border:none;
+          border-radius:5px;color:#fff;font-size:11px;padding:3px 10px;cursor:pointer;font-weight:600">Add</button>
+      </div>
     </div>
     <div id="lang-filter-bar">
       <span style="font-size:10px;color:#64748b;margin-right:4px">Show:</span>

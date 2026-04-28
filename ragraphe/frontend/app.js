@@ -3012,6 +3012,70 @@ async function kbBrowse() {
   }
 }
 
+// ── Auto-nodes toggle ────────────────────────────────────────────────────────
+let _autoNodesOn = true;
+
+async function toggleAutoNodes() {
+  if (!sessionId) return;
+  _autoNodesOn = !_autoNodesOn;
+  const btn = document.getElementById('auto-nodes-btn');
+  if (btn) {
+    btn.style.color       = _autoNodesOn ? '#22c55e' : '#64748b';
+    btn.style.borderColor = _autoNodesOn ? '#22c55e' : '#475569';
+    btn.title = _autoNodesOn ? 'AI 自動生成節點（開）' : 'AI 自動生成節點（關）';
+  }
+  try {
+    await fetch(`/api/sessions/${sessionId}/auto_nodes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_nodes: _autoNodesOn }),
+    });
+  } catch (_) {}
+}
+
+// ── Manual add node ──────────────────────────────────────────────────────────
+function openAddNodeForm(e) {
+  const form = document.getElementById('add-node-form');
+  if (!form) return;
+  form.style.display = 'block';
+  // Position near the ＋ button
+  const rect = e.target.getBoundingClientRect();
+  form.style.right  = (window.innerWidth - rect.right) + 'px';
+  form.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+  form.style.left   = 'auto';
+  form.style.top    = 'auto';
+  setTimeout(() => document.getElementById('add-node-name')?.focus(), 50);
+}
+
+function closeAddNodeForm() {
+  const form = document.getElementById('add-node-form');
+  if (form) form.style.display = 'none';
+  const nameEl = document.getElementById('add-node-name');
+  const descEl = document.getElementById('add-node-desc');
+  if (nameEl) nameEl.value = '';
+  if (descEl) descEl.value = '';
+}
+
+async function submitAddNode() {
+  if (!sessionId) return;
+  const name = document.getElementById('add-node-name')?.value.trim();
+  const desc = document.getElementById('add-node-desc')?.value.trim();
+  if (!name) return;
+  closeAddNodeForm();
+  try {
+    const res  = await fetch('/api/add_node', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, name, description: desc }),
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+    // Add node + edges to graph
+    _enqueueGraphItem({ type: 'node', data: data.node });
+    for (const e of (data.edges || [])) {
+      _enqueueGraphItem({ type: 'edge', data: e });
+    }
+  } catch (_) {}
+}
+
 async function toggleLangFilter(lang, btn) {
   btn.classList.toggle("active");
   const active = [...document.querySelectorAll(".lang-filter-btn.active")].map(b => b.dataset.lang);

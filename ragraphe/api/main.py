@@ -1155,6 +1155,9 @@ def _process_message(session_id: str, user_text: str):
     concepts = _expand_by_location_siblings(raw_concepts, nodes, edges)
 
     # ── 3. Add expanded nodes (todo/deferred, source=user) + create parent strong edges ──
+    if not session.get("auto_nodes", True):
+        # Note mode: AI replies only, skip all node generation
+        return
     added_ids: list[str] = []
     newly_confirmed_ids: list[str] = []  # nodes transitioning unknown → todo, used for sibling-skip
     # Set of concept names the user explicitly marked as "not sure" (→ deferred status)
@@ -1583,6 +1586,7 @@ def start(req: StartRequest):
         "lang":         req.lang,
         "filter_langs":    _ALL_FILTER_LANGS[:],  # show all languages by default
         "filter_sources":  [],                    # [] = all sources; non-empty = only listed sources
+        "auto_nodes":      True,                  # when False: AI replies only, no nodes added to graph
         "created_at":   _dt.now().isoformat(),
         "messages":     [],
         "nodes":        {},      # id → {id, name, description, status, source, exclusive}
@@ -1951,6 +1955,61 @@ def set_filter_langs(session_id: str, body: dict):
     langs = [l for l in body.get("filter_langs", _ALL_FILTER_LANGS) if l in ("en", "zh", "ja")]
     data["filter_langs"] = langs or _ALL_FILTER_LANGS[:]
     return {"ok": True, "filter_langs": data["filter_langs"]}
+
+
+@app.post("/api/sessions/{session_id}/auto_nodes")
+def set_auto_nodes(session_id: str, body: dict):
+    """Toggle whether AI conversation automatically adds nodes to the graph."""
+    data = sessions.get(session_id)
+    if not data:
+        return {"ok": False, "error": "Session not found"}
+    data["auto_nodes"] = bool(body.get("auto_nodes", True))
+    return {"ok": True, "auto_nodes": data["auto_nodes"]}
+
+
+@app.post("/api/add_node")
+def add_node_manual(body: dict):
+    """Manually add a node to the graph with auto-embedding and proximity edges."""
+    session_id = body.get("session_id")
+    name       = (body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    if not session_id or not name:
+        return {"ok": False, "error": "session_id and name required"}
+    data = sessions.get(session_id)
+    if not data:
+        return {"ok": False, "error": "Session not found"}
+
+    nodes:      dict = data["nodes"]
+    embeddings: dict = data["embeddings"]
+    edge_set:   set  = data["edge_set"]
+    edges:      list = data["edges"]
+
+    nid = str(uuid.uuid4())[:8]
+    node = {
+        "id":          nid,
+        "name":        name,
+        "description": description,
+        "status":      "todo",
+        "source":      "user_manual",
+        "exclusive":   False,
+    }
+    try:
+        emb = embed(f"{name} {description}"[:400])
+    except Exception:
+        return {"ok": False, "error": "Embedding failed"}
+
+    nodes[nid]      = node
+    embeddings[nid] = emb
+
+    new_edges = _compute_new_edges([nid], embeddings, edge_set, nodes)
+    for e in new_edges:
+        edges.append(e)
+
+    return {
+        "ok":    True,
+        "node":  _node_vis(node),
+        "edges": [_edge_vis(e, nodes) for e in new_edges],
+    }
 
 
 @app.post("/api/sessions/{session_id}/filter_sources")
