@@ -1467,6 +1467,7 @@ function _addResourceNodes(parentId, resources) {
         _snippet: res.snippet,         // 短版（180字，hover tooltip 用）
         _full_snippet: res.full_snippet || res.snippet,  // 長版（400字，面板用）
         _domain: res.domain,      // 純 domain（顯示在 tooltip 來源行）
+        _source_name: res.source_name || '', // 書名/檔名（上傳時的 source_name）
         _category: res.category,
         _quality: res.quality,
         _distance: res.distance,
@@ -2146,10 +2147,11 @@ function _showHoverTooltip(node) {
     const snippet  = (n._snippet || '').slice(0, 120);
     const domain   = n._domain || '';
     const cat      = catLabel[n._category] || '資料';
+    const bookLabel = n._source_name ? ` · 📖 ${n._source_name}` : (domain ? ` · ${domain}` : '');
     tt.innerHTML   = `
       <div class="ht-name">${escapeHtml(n.label || domain)}</div>
       ${snippet ? `<div class="ht-desc">${escapeHtml(snippet)}${n._snippet && n._snippet.length > 120 ? '…' : ''}</div>` : ''}
-      <div class="ht-hint">${cat} · ${escapeHtml(domain)} · 點擊開啟來源</div>`;
+      <div class="ht-hint">${cat}${escapeHtml(bookLabel)} · 點擊查看</div>`;
   } else {
     // 主節點 tooltip
     const hasRag   = _expandedNodes.has(node.id);
@@ -2290,9 +2292,13 @@ function _showResourceDetail(n) {
   // body：完整 snippet + 來源連結（優先用 400字的 _full_snippet）
   const snippet = n._full_snippet || n._snippet || '';
   const icon = '🔗';
+  const bookBadge = n._source_name
+    ? `<span style="display:inline-block;background:#1e3a5f;color:#7dd3fc;font-size:10px;padding:1px 6px;border-radius:4px;margin-bottom:6px;">📖 ${escapeHtml(n._source_name)}</span>`
+    : '';
   body.innerHTML = `
     <div class="np-rag-label">知識摘要</div>
     <div class="np-chunk ${n._category ? 'cat-'+n._category : ''}">
+      ${bookBadge}
       <div class="np-chunk-text" style="-webkit-line-clamp: unset; overflow: visible; white-space: pre-wrap;">${escapeHtml(snippet)}</div>
       <div class="np-chunk-footer" style="margin-top:8px; gap:8px;">
         <span class="np-chunk-cat">${escapeHtml(cat)}</span>

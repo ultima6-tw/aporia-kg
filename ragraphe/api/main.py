@@ -2572,19 +2572,21 @@ def node_resources(req: NodeResourcesRequest):
         domain = _domain_label(src)
         db_cat = c.get("category", "general")
         display_cat = _infer_display_category(text, db_cat)
+        source_name = c.get("source_name", "")
 
         candidates.append({
-            "id":         f"res_{str(uuid.uuid4())[:6]}",
-            "name":       title if title else domain,   # Prefer knowledge summary title
-            "domain":     domain,
-            "source_url": src,
-            "snippet":    text[:180],   # Short version for graph node label
-            "full_snippet": text[:400], # Full version for right-side panel
-            "title":      title,
-            "distance":   round(dist, 3),
-            "quality":    quality,
-            "category":   display_cat,
-            "parent_id":  req.node_id,
+            "id":          f"res_{str(uuid.uuid4())[:6]}",
+            "name":        title if title else domain,   # Prefer knowledge summary title
+            "domain":      domain,
+            "source_url":  src,
+            "source_name": source_name,
+            "snippet":     text[:180],   # Short version for graph node label
+            "full_snippet": text[:400],  # Full version for right-side panel
+            "title":       title,
+            "distance":    round(dist, 3),
+            "quality":     quality,
+            "category":    display_cat,
+            "parent_id":   req.node_id,
         })
         if len(candidates) >= 6:
             break
