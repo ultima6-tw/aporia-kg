@@ -273,7 +273,6 @@ claude mcp add aporia-kg -s user \
 
 ## Roadmap
 
-- [ ] **KB Q&A** — `/api/knowledge/ask`: search KB → assemble context → Gemini synthesis → answer with source citations
 - [ ] **Node editing** — inline rename/description edit for confirmed nodes
 - [ ] **Multi-format export** — JSON (for agent pipelines), Mermaid diagram
 - [ ] **Real-time search** — detect time-sensitive goals ("today's rate", "latest news") and bypass cache
