@@ -39,12 +39,15 @@ Small orbiting dots around nodes are **knowledge satellites** — content fragme
 
 - **Organic graph growth** — starts empty, grows through conversation
 - **Dual LLM pipeline** — ChatExtract (dialogue + concept extraction) runs in parallel with Planner (RAG-driven gap detection)
-- **Semantic edges** — nodes connect automatically via cosine similarity (threshold 0.28), no manual wiring
+- **Semantic edges** — nodes connect automatically via cosine similarity (threshold 0.38), no manual wiring
 - **Deep-dive exploration** — click any node or satellite to auto-send a sub-topic breakdown request to the AI
 - **Dynamic theme anchor** — deep-dive uses the most important node in that area as context, not just the initial goal
 - **RAG knowledge satellites** — orbiting dots show snippets scored for relevance + freshness; generic content the LLM already knows is filtered out
 - **Satellite scoring** — multi-category bonuses (a chunk can belong to travel + news simultaneously; best bonus + fastest decay applied), exponential time-decay for time-sensitive content, auto re-crawl when content goes stale
 - **Content-language filter** — EN / ZH / JA toggle buttons filter which knowledge base languages appear as satellites
+- **KB source filter** — per-session checkbox to select which imported documents contribute to satellite knowledge
+- **Note Mode** — toggle off automatic node generation; AI still responds, you build the map manually
+- **Manual node creation** — add a node via toolbar button or right-click on the graph canvas
 - **Session persistence** — SQLite-backed, survives server restarts
 - **Session history panel** — switch between or restore past sessions
 - **Cross-session memory** — what you've already learned doesn't get re-suggested
@@ -54,8 +57,7 @@ Small orbiting dots around nodes are **knowledge satellites** — content fragme
 - **Coverage visualization** — glass-ball nodes fill up as a topic gets discussed
 - **Markdown export** — done/todo/skip checklist for Notion, Obsidian, etc.
 - **Knowledge base import** — PDF, URL, plain text, topic crawl (large PDFs supported — tested with 1866-page instrument manuals)
-- **Grounded node answers** — click any node → KB-backed answer with source citations, not LLM guessing
-- **MCP client** — use Aporia KG as a tool inside Claude Code or any MCP-compatible AI agent
+- **MCP server** — use Aporia KG as a goal-decomposition + task-tracking tool inside Claude Code or any MCP-compatible AI agent
 - **Multi-language** — Traditional Chinese, English, Japanese (UI + AI responses)
 - **PostgreSQL support** — set `DATABASE_URL` to switch from SQLite
 
@@ -72,7 +74,7 @@ User input
                     ↓ join threads
           Code-based expansion (location × concept matrix)
                     ↓
-          Semantic edge calculation (cosine distance < 0.28)
+          Semantic edge calculation (cosine distance < 0.38)
                     ↓
           Completion check → SSE stream to frontend
 ```
@@ -133,7 +135,7 @@ Open [http://localhost:7860](http://localhost:7860). The welcome screen shows 5 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_BACKEND` | `ollama` | `gemini` or `ollama` |
+| `LLM_BACKEND` | `gemini` | `gemini` or `ollama` |
 | `GEMINI_API_KEY` | — | Required when `LLM_BACKEND=gemini` |
 | `DATABASE_URL` | — | PostgreSQL URL — omit to use SQLite |
 
@@ -225,13 +227,14 @@ ragraphe/
 │   ├── conversation.py  # Conversation utilities
 │   └── category.py      # Content category inference
 ├── config/
-│   ├── freshness.yaml   # 24-topic TTL configuration
+│   ├── freshness.yaml   # 25-topic TTL configuration (including default)
 │   └── freshness.py     # Topic detection + TTL resolution
 ├── db/
 │   └── store.py         # SQLite / PostgreSQL abstraction layer
 ├── client/
-│   ├── aporia_client.py # Python client (KB import, search, kb_ask)
-│   └── aporia_mcp.py    # FastMCP server exposing KB tools to AI agents
+│   ├── aporia_client.py # Python HTTP/SSE client library
+│   ├── aporia_cli.py    # CLI tool (plan / nodes / done / skip / add / chat / export)
+│   └── aporia_mcp.py    # FastMCP server exposing KB + graph tools to AI agents
 └── llm/
     ├── gemini_client.py # Gemini API client (chat + embed + retry)
     └── ollama_client.py # Ollama client
@@ -241,13 +244,12 @@ ragraphe/
 
 ## MCP Integration (Claude Code)
 
-Aporia KG ships a FastMCP client (`ragraphe/client/aporia_mcp.py`) that exposes KB import and Q&A as MCP tools — use it inside Claude Code or any MCP-compatible agent.
+Aporia KG ships a FastMCP server (`ragraphe/client/aporia_mcp.py`) that lets AI agents use Aporia KG as a goal-decomposition and task-tracking anchor.
 
 ### Register the server
 
 ```bash
 claude mcp add aporia-kg -s user \
-  -e APORIA_URL=http://localhost:7860 \
   -- /path/to/aporia-kg/.venv/bin/python -m ragraphe.client.aporia_mcp
 ```
 
@@ -255,22 +257,27 @@ claude mcp add aporia-kg -s user \
 
 | Tool | Description |
 |------|-------------|
-| `kb_import_url` | Crawl a URL and add it to the KB |
-| `kb_import_pdf` | Download a PDF and import page-by-page |
-| `kb_import_text` | Import raw text directly |
-| `kb_search` | Semantic search over KB chunks |
-| `kb_ask` | Grounded Q&A — search KB, build context, answer via Gemini with source citations |
+| `plan_goal` | Decompose a goal into a task graph; returns session_id + initial nodes |
+| `get_nodes` | List all nodes with status; optionally filter by todo/done/skip/unknown |
+| `get_todo_nodes` | Get only remaining tasks (todo + unknown) — use to stay focused |
+| `mark_done` | Mark a task node as completed |
+| `mark_skip` | Mark a task node as skipped |
+| `add_node` | Manually add a task node the AI didn't suggest |
+| `send_message` | Continue the planning conversation to refine or expand the graph |
+| `export_markdown` | Export the task graph as a Markdown checklist |
+| `list_sessions` | List all past planning sessions |
 
-**Example use case:** Import a 1800-page instrument manual, then ask `kb_ask("How do I set up a SCPI trigger on MXO4?")` — you get an answer based on the actual manual content, not LLM guessing.
+**Example use case:** An agent building a research paper calls `plan_goal("write a paper on transformer attention")`, then iterates with `get_todo_nodes` to always know what's left, calling `mark_done` after completing each section.
 
 ---
 
 ## Roadmap
 
+- [ ] **KB Q&A** — `/api/knowledge/ask`: search KB → assemble context → Gemini synthesis → answer with source citations
+- [ ] **Node editing** — inline rename/description edit for confirmed nodes
+- [ ] **Multi-format export** — JSON (for agent pipelines), Mermaid diagram
+- [ ] **Real-time search** — detect time-sensitive goals ("today's rate", "latest news") and bypass cache
 - [ ] Shareable read-only session links
-- [ ] Goal-similarity matching (suggest paths from similar past sessions)
-- [ ] Multi-format export (Mermaid, JSON)
-- [ ] YouTube transcript ingestion
 - [ ] User authentication
 
 ---
