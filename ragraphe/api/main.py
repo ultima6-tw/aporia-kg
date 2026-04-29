@@ -1887,6 +1887,66 @@ def set_node_status(req: NodeStatusRequest):
     return {"node": _node_vis(node), "edge_updates": edge_updates}
 
 
+class NodeEditRequest(BaseModel):
+    session_id:  str
+    node_id:     str
+    name:        str | None = None
+    description: str | None = None
+
+
+@app.patch("/api/node/{node_id}")
+def edit_node(node_id: str, req: NodeEditRequest):
+    """Edit node name/description, re-embed, and recompute proximity edges."""
+    if not _SAFE_NODE_ID_RE.match(node_id):
+        return {"error": "Invalid node_id"}
+    data = sessions.get(req.session_id)
+    if not data:
+        return {"error": "Session not found"}
+    nodes:      dict = data["nodes"]
+    embeddings: dict = data["embeddings"]
+    edge_set:   set  = data["edge_set"]
+    edges:      list = data["edges"]
+    node = nodes.get(node_id)
+    if not node:
+        return {"error": "Node not found"}
+
+    if req.name is not None:
+        node["name"]  = req.name.strip()
+        node["label"] = req.name.strip()
+    if req.description is not None:
+        node["description"] = req.description.strip()
+
+    # Re-embed
+    try:
+        new_emb = embed(f"{node['name']} {node.get('description', '')}"[:400])
+        embeddings[node_id] = new_emb
+    except Exception as e:
+        return {"error": f"Embed failed: {e}"}
+
+    # Remove proximity edges for this node (keep is_parent edges)
+    removed_ids: list[str] = []
+    kept_edges:  list[dict] = []
+    for e in edges:
+        involves = (e["from_id"] == node_id or e["to_id"] == node_id)
+        if involves and not e.get("is_parent"):
+            removed_ids.append(e["id"])
+            edge_set.discard(frozenset([e["from_id"], e["to_id"]]))
+        else:
+            kept_edges.append(e)
+    data["edges"] = edges = kept_edges
+
+    # Recompute proximity edges for this node
+    new_prox = _compute_new_edges([node_id], embeddings, edge_set, nodes)
+    edges.extend(new_prox)
+
+    _save_session(req.session_id)
+    return {
+        "node":         _node_vis(node),
+        "removed_edges": removed_ids,
+        "new_edges":    [_edge_vis(e, nodes) for e in new_prox],
+    }
+
+
 @app.get("/api/sessions")
 def get_sessions():
     """Return a summary list of all sessions."""

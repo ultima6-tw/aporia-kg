@@ -14,8 +14,6 @@ const TRANSLATIONS = {
     'status.done':          '✅ 已完成',
     'status.todo':          '🔲 待完成',
     'status.skip':          '⏭️ 跳過',
-    'status.source':        '📍 出發地',
-    'status.sink':          '🎯 目的地',
     'status.unknown':       '❓ 未確認',
     // Node
     'node.expand':          '▼ 展開子步驟 ({count})',
@@ -180,8 +178,6 @@ const TRANSLATIONS = {
     'status.done':          '✅ Done',
     'status.todo':          '🔲 To Do',
     'status.skip':          '⏭️ Skip',
-    'status.source':        '📍 Start',
-    'status.sink':          '🎯 Goal',
     'status.unknown':       '❓ Unknown',
     'node.expand':          '▼ Show substeps ({count})',
     'node.collapse':        '▲ Hide substeps',
@@ -337,8 +333,6 @@ const TRANSLATIONS = {
     'status.done':          '✅ 完了',
     'status.todo':          '🔲 未完了',
     'status.skip':          '⏭️ スキップ',
-    'status.source':        '📍 出発地',
-    'status.sink':          '🎯 目的地',
     'status.unknown':       '❓ 未確認',
     'node.expand':          '▼ サブステップを展開 ({count})',
     'node.collapse':        '▲ サブステップを閉じる',
@@ -526,8 +520,7 @@ function applyI18n() {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 function STATUS_LABEL(s) {
-  const map = { done:'status.done', todo:'status.todo', skip:'status.skip',
-                source:'status.source', sink:'status.sink', unknown:'status.unknown' };
+  const map = { done:'status.done', todo:'status.todo', skip:'status.skip', unknown:'status.unknown' };
   return t(map[s] || 'status.todo');
 }
 
@@ -1670,7 +1663,7 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-const ALLOWED_STATUSES = new Set(["done", "todo", "skip", "unknown", "source", "sink"]);
+const ALLOWED_STATUSES = new Set(["done", "todo", "skip", "unknown", "deferred"]);
 
 // ── Node Popup ──────────────────────────────────────────────────────────────
 let _popupNodeId = null;
@@ -1695,9 +1688,7 @@ function showNodePopup(n, domPos) {
 
   // Done 按鈕
   const doneBtn = document.getElementById("np-done-btn");
-  if (["source", "sink"].includes(safeStatus)) {
-    doneBtn.style.display = "none";
-  } else if (safeStatus === "done") {
+  if (safeStatus === "done") {
     doneBtn.style.display = "block";
     doneBtn.textContent = "↩ 取消完成";
     doneBtn.style.background = "#1e3a2a";
@@ -1709,11 +1700,9 @@ function showNodePopup(n, domPos) {
     doneBtn.style.color = "#fff";
   }
 
-  // 跳過按鈕：source/sink 隱藏；skip → 重新開啟；其他 → 跳過
+  // 跳過按鈕：skip → 重新開啟；其他 → 跳過
   const skipBtn = document.getElementById("np-skip-btn");
-  if (["source", "sink"].includes(safeStatus)) {
-    skipBtn.style.display = "none";
-  } else if (safeStatus === "skip") {
+  if (safeStatus === "skip") {
     skipBtn.style.display = "block";
     skipBtn.textContent = "↩ 重新開啟此節點";
     skipBtn.classList.remove("skipped");
@@ -1759,10 +1748,8 @@ function showNodePopup(n, domPos) {
   _popupNodeId = n.id;
   _hideHoverTooltip();
 
-  // 非同步載入 RAG（source/sink 是圖的起終點，不需要知識內容；unknown/todo/done 都查）
-  if (!["source", "sink"].includes(safeStatus)) {
-    fetchPopupRAG(n.id, n.label, safeStatus);
-  }
+  // 非同步載入 RAG
+  fetchPopupRAG(n.id, n.label, safeStatus);
 }
 
 // BFS 從 startNodeId 往外最多 4 hop，找 _depth 最小的主節點作為主題錨點
@@ -1832,9 +1819,82 @@ function closeNodePopup() {
   document.getElementById("node-popup").classList.remove("visible");
   const preview = document.getElementById("np-preview");
   if (preview) preview.style.display = 'none';
+  cancelNodeEdit();
   _popupNodeId = null;
   clearImageBubbles();
   closeNodeDetailPane();
+}
+
+// ── Node Edit ──────────────────────────────────────────────────────────────
+function startNodeEdit() {
+  const nid = _popupNodeId;
+  if (!nid) return;
+  const n = nodeData[nid];
+  document.getElementById("np-edit-name").value = n.label || "";
+  document.getElementById("np-edit-desc").value = n._description || "";
+  document.getElementById("np-edit-form").style.display = "block";
+  document.getElementById("np-edit-btn").style.display = "none";
+  document.getElementById("np-edit-name").focus();
+}
+
+function cancelNodeEdit() {
+  document.getElementById("np-edit-form").style.display = "none";
+  document.getElementById("np-edit-btn").style.display = "";
+}
+
+async function saveNodeEdit() {
+  const nid = _popupNodeId;
+  if (!nid || !sessionId) return;
+  const name = document.getElementById("np-edit-name").value.trim();
+  if (!name) return;
+  const desc = document.getElementById("np-edit-desc").value.trim();
+  const saveBtn = document.querySelector("#np-edit-form button");
+  saveBtn.textContent = "儲存中…";
+  saveBtn.disabled = true;
+  try {
+    const res = await fetch(`/api/node/${nid}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, node_id: nid, name, description: desc }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+
+    // Update nodeData (canvas reads from here)
+    if (nodeData[nid]) {
+      nodeData[nid].label        = name;
+      nodeData[nid]._description = desc;
+    }
+
+    // Remove old proximity edges from _gLinks and _gLinkSet
+    const removedSet = new Set(data.removed_edges || []);
+    for (let i = _gLinks.length - 1; i >= 0; i--) {
+      if (removedSet.has(_gLinks[i].id)) {
+        _gLinkSet.delete(_gLinks[i].id);
+        _gLinks.splice(i, 1);
+      }
+    }
+
+    // Add new proximity edges
+    for (const e of (data.new_edges || [])) {
+      if (!_gLinkSet.has(e.id)) {
+        _gLinkSet.add(e.id);
+        _gLinks.push({ id: e.id, source: e.from_id, target: e.to_id, _is_parent: false });
+      }
+    }
+
+    if (graph3D) graph3D.graphData({ nodes: _gNodes, links: _gLinks });
+
+    // Update popup display
+    document.getElementById("np-title").textContent = name;
+    document.getElementById("np-desc").textContent  = desc;
+    cancelNodeEdit();
+  } catch(e) {
+    alert("儲存失敗：" + e);
+  } finally {
+    saveBtn.textContent = "儲存";
+    saveBtn.disabled = false;
+  }
 }
 
 // ── Node Feedback ──────────────────────────────────────────────────────────

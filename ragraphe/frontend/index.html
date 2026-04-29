@@ -106,9 +106,32 @@
     <div id="hover-tooltip"></div>
     <div id="node-popup">
       <button class="np-close" onclick="closeNodePopup()">✕</button>
-      <div class="np-title" id="np-title"></div>
+      <div style="display:flex;align-items:flex-start;gap:4px">
+        <div class="np-title" id="np-title" style="flex:1"></div>
+        <button id="np-edit-btn" onclick="startNodeEdit()" title="編輯節點" style="
+          background:none;border:1px solid #1e3a5f;border-radius:4px;padding:2px 6px;
+          font-size:10px;color:#64748b;cursor:pointer;margin-top:2px;flex-shrink:0">✏️</button>
+      </div>
       <span class="nd-badge" id="np-badge"></span>
       <div class="np-desc" id="np-desc"></div>
+      <div id="np-edit-form" style="display:none;margin-top:6px">
+        <input id="np-edit-name" type="text" placeholder="節點名稱" style="
+          width:100%;box-sizing:border-box;padding:5px 8px;border-radius:5px;
+          border:1px solid #1e3a5f;background:#0a1628;color:#e2e8f0;
+          font-size:12px;margin-bottom:4px"/>
+        <textarea id="np-edit-desc" rows="2" placeholder="描述（選填）" style="
+          width:100%;box-sizing:border-box;padding:5px 8px;border-radius:5px;
+          border:1px solid #1e3a5f;background:#0a1628;color:#e2e8f0;
+          font-size:11px;resize:none;margin-bottom:6px"></textarea>
+        <div style="display:flex;gap:6px">
+          <button onclick="saveNodeEdit()" style="
+            flex:1;padding:5px 0;border:none;border-radius:5px;font-size:11px;cursor:pointer;
+            background:#1d4ed8;color:#fff">儲存</button>
+          <button onclick="cancelNodeEdit()" style="
+            flex:1;padding:5px 0;border:1px solid #1e3a5f;border-radius:5px;
+            font-size:11px;cursor:pointer;background:none;color:#94a3b8">取消</button>
+        </div>
+      </div>
       <div id="np-preview" style="display:none;margin:6px 0;padding:6px 8px;
         background:#060a14;border-left:2px solid #1e3a5f;border-radius:4px;
         font-size:10px;color:#64748b;line-height:1.55;max-height:60px;overflow:hidden"></div>
