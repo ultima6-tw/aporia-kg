@@ -40,6 +40,8 @@ Small orbiting dots around nodes are **knowledge satellites** — content fragme
 - **Organic graph growth** — starts empty, grows through conversation
 - **Dual LLM pipeline** — ChatExtract (dialogue + concept extraction) runs in parallel with Planner (RAG-driven gap detection)
 - **Semantic edges** — nodes connect automatically via cosine similarity (threshold 0.38), no manual wiring
+- **Node inline editing** — click ✏️ in any node popup to rename or edit the description; the node is re-embedded and proximity edges recalculated automatically
+- **Real-time search** — time-sensitive queries ("today's rate", "latest news") automatically bypass the cache and pull live results
 - **Deep-dive exploration** — click any node or satellite to auto-send a sub-topic breakdown request to the AI
 - **Dynamic theme anchor** — deep-dive uses the most important node in that area as context, not just the initial goal
 - **RAG knowledge satellites** — orbiting dots show snippets scored for relevance + freshness; generic content the LLM already knows is filtered out
@@ -190,6 +192,7 @@ All content is chunked, embedded, and stored locally in ChromaDB. The content la
 
 **Managing the map**
 - ✓ **Mark done** — click a node → "Mark complete"
+- ✏️ **Edit** — click the pencil button in any node popup to rename or update the description inline; edges recalculate automatically
 - ↩ **Skip** — dismiss nodes you don't need; skipping one option auto-collapses sibling choices
 - ⎌ **Undo** — restore the previous graph state (up to 5 steps)
 - 📥 **Export** — when the map is complete, export as Markdown checklist
@@ -273,8 +276,7 @@ claude mcp add aporia-kg -s user \
 
 ## Roadmap
 
-- [ ] **Node editing** — inline rename/description edit for confirmed nodes
-- [ ] **Real-time search** — detect time-sensitive goals ("today's rate", "latest news") and bypass TTL cache
+- [ ] **Conversation coverage visualization** — fill glass-ball nodes with color saturation as topics are discussed (backend `node_coverage` tracking already in place)
 
 ---
 

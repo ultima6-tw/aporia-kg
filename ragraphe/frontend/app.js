@@ -3433,10 +3433,10 @@ async function _loadPopularNodes() {
   const overlay = document.getElementById('welcome-overlay');
   const card    = document.getElementById('onboarding-card');
   if (!overlay || !card) return;
+  overlay.classList.add('interactive');
   const seen = localStorage.getItem('ragraphe_onboarded');
   if (!seen) {
     card.style.display = 'block';
-    overlay.classList.add('interactive');
   }
 })();
 
