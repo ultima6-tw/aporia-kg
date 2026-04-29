@@ -274,10 +274,7 @@ claude mcp add aporia-kg -s user \
 ## Roadmap
 
 - [ ] **Node editing** — inline rename/description edit for confirmed nodes
-- [ ] **Multi-format export** — JSON (for agent pipelines), Mermaid diagram
-- [ ] **Real-time search** — detect time-sensitive goals ("today's rate", "latest news") and bypass cache
-- [ ] Shareable read-only session links
-- [ ] User authentication
+- [ ] **Real-time search** — detect time-sensitive goals ("today's rate", "latest news") and bypass TTL cache
 
 ---
 
