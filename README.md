@@ -237,7 +237,7 @@ ragraphe/
 │   └── store.py         # SQLite / PostgreSQL abstraction layer
 ├── client/
 │   ├── aporia_client.py # Python HTTP/SSE client library
-│   ├── aporia_cli.py    # CLI tool (plan / nodes / done / skip / add / chat / export)
+│   ├── aporia_cli.py    # CLI tool (plan / nodes / done / skip / add / chat / export / sessions / kb)
 │   └── aporia_mcp.py    # FastMCP server exposing KB + graph tools to AI agents
 └── llm/
     ├── gemini_client.py # Gemini API client (chat + embed + retry)
@@ -248,7 +248,7 @@ ragraphe/
 
 ## MCP Integration
 
-Aporia KG ships a FastMCP server (`ragraphe/client/aporia_mcp.py`) that exposes 22 tools across two categories: **goal-planning** and **knowledge base**. Any MCP-compatible agent (Claude Code, Cursor, or a custom script) can use these tools to decompose goals, manage tasks, import knowledge, verify concept connections, and audit documentation gaps.
+Aporia KG ships a FastMCP server (`ragraphe/client/aporia_mcp.py`) that exposes 29 tools across two categories: **goal-planning** and **knowledge base**. Any MCP-compatible agent (Claude Code, Cursor, or a custom script) can use these tools to decompose goals, manage tasks, import knowledge, verify concept connections, and audit documentation gaps.
 
 ### Register the server
 

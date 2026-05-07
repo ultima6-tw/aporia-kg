@@ -3402,6 +3402,8 @@ def knowledge_sync_file(req: KnowledgeSyncFileRequest):
     store_chunks(chunks, category="concept", ttl_days=0)
     set_source_credibility(source_name, CREDIBILITY_DEFAULTS["text"], "text")
     update_file_sync(file_path, mtime)
+    add_priority_source(name=source_name, url=f"file://{file_path}",
+                        category="text", ttl_days=0)
 
     return {"ok": True, "changed": True, "chunks": len(chunks), "source": source_name}
 

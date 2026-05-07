@@ -186,5 +186,107 @@ def sessions():
     console.print(t)
 
 
+# ── KB sub-app ────────────────────────────────────────────────────────────────
+
+kb_app = typer.Typer(help="Knowledge base operations")
+app.add_typer(kb_app, name="kb")
+
+
+@kb_app.command("sync")
+def kb_sync(
+    file_path: str = typer.Argument(..., help="Path to the file to sync"),
+    source_name: str = typer.Option("", "--source", "-s", help="Source name (defaults to filename)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Re-import even if file unchanged"),
+):
+    """Sync a local file into the knowledge base."""
+    result = _client().kb_sync_file(file_path, source_name, force)
+    if not result.get("ok"):
+        rprint(f"[red]Error:[/red] {result.get('error')}")
+        raise typer.Exit(1)
+    if not result.get("changed"):
+        rprint(f"[dim]Unchanged:[/dim] {result.get('source')} — skipped")
+    else:
+        rprint(f"[green]Synced:[/green] {result.get('chunks')} chunks → {result.get('source')}")
+
+
+@kb_app.command("sources")
+def kb_sources():
+    """List all knowledge sources currently in the KB."""
+    rows = _client().list_kb_sources()
+    if not rows:
+        rprint("[dim]No sources found.[/dim]")
+        return
+    t = Table(title="KB Sources")
+    t.add_column("Source", min_width=30)
+    t.add_column("Chunks", width=8)
+    for r in rows:
+        t.add_row(r.get("source", "?"), str(r.get("chunk_count", "?")))
+    console.print(t)
+
+
+@kb_app.command("watch")
+def kb_watch(
+    concepts: list[str] = typer.Argument(..., help="Concepts to add to the watchlist"),
+):
+    """Add concepts to the audit watchlist."""
+    result = _client().kb_watch_concepts(concepts)
+    rprint(f"[green]Watching:[/green] {', '.join(concepts)}")
+
+
+@kb_app.command("unwatch")
+def kb_unwatch(
+    concept: str = typer.Argument(..., help="Concept to remove from the watchlist"),
+):
+    """Remove a concept from the watchlist."""
+    _client().kb_unwatch_concept(concept)
+    rprint(f"[dim]Removed:[/dim] {concept}")
+
+
+@kb_app.command("audit")
+def kb_audit(
+    verifier_id: str = typer.Option("watchlist", "--id", help="Verifier ID"),
+):
+    """Run audit on the watchlist and show gap summary."""
+    result = _client().kb_audit_status(verifier_id)
+    if "error" in result:
+        rprint(f"[red]{result['error']}[/red]")
+        raise typer.Exit(1)
+    s = result.get("summary", {})
+    rprint(f"[bold]Audit:[/bold] {s.get('gaps', '?')} gaps / {s.get('weak', '?')} weak / {s.get('strong', '?')} strong  (total pairs: {s.get('total_pairs', '?')})")
+    gaps = result.get("gaps", [])[:5]
+    if gaps:
+        rprint("[yellow]Top gaps:[/yellow]")
+        for g in gaps:
+            rprint(f"  {g['concept_a']} ↔ {g['concept_b']}  score={g['kb_support_score']:.3f}  → {g['fix_hints']['suggested_action']}")
+
+
+@kb_app.command("search")
+def kb_search(
+    query: str = typer.Argument(..., help="Search query"),
+    limit: int = typer.Option(5, "--limit", "-n", help="Number of results"),
+):
+    """Search the knowledge base."""
+    results = _client().search_kb(query, n=limit)
+    if not results:
+        rprint("[dim]No results.[/dim]")
+        return
+    for r in results:
+        src = r.get("source", "?")
+        dist = r.get("distance", 0)
+        text = r.get("text", "")[:120].replace("\n", " ")
+        console.print(f"[cyan]{src}[/cyan] [dim]dist={dist:.3f}[/dim] {text}")
+
+
+@kb_app.command("ask")
+def kb_ask(
+    query: str = typer.Argument(..., help="Question to ask the KB"),
+    lang: str = typer.Option("en", "--lang", "-l", help="Response language"),
+):
+    """Ask the knowledge base a question."""
+    result = _client().kb_ask(query, lang=lang)
+    answer = result.get("answer") or result.get("reply") or str(result)
+    rprint(answer)
+
+
 if __name__ == "__main__":
     app()

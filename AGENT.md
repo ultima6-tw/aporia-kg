@@ -48,6 +48,20 @@ The Aporia KG server must be running:
 uvicorn ragraphe.api.main:app --port 7860
 ```
 
+### CLI (alternative to MCP)
+
+If MCP is not available, use the CLI directly:
+
+```bash
+python -m ragraphe.client.aporia_cli kb sync <file_path> [--source <name>] [--force]
+python -m ragraphe.client.aporia_cli kb sources
+python -m ragraphe.client.aporia_cli kb watch <concept1> <concept2> ...
+python -m ragraphe.client.aporia_cli kb unwatch <concept>
+python -m ragraphe.client.aporia_cli kb audit
+python -m ragraphe.client.aporia_cli kb search <query> [--limit N]
+python -m ragraphe.client.aporia_cli kb ask <question>
+```
+
 ### Session startup sequence
 
 ```
