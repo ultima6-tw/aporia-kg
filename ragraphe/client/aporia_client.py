@@ -217,21 +217,34 @@ class AporiaClient:
 
     # ── Knowledge base ───────────────────────────────────────────────────────
 
-    def import_url(self, url: str, source_name: str = "") -> dict:
+    def import_url(self, url: str, source_name: str = "",
+                   ttl_days: int | None = None) -> dict:
         """Crawl a URL and add its content to the knowledge base."""
         r = httpx.post(
             f"{self.base}/api/knowledge/url",
-            json={"url": url, "source": source_name or url},
+            json={"url": url, "source": source_name or url, "ttl_days": ttl_days},
             timeout=self.timeout,
         )
         r.raise_for_status()
         return r.json()
 
-    def import_text(self, text: str, source_name: str = "") -> dict:
+    def import_text(self, text: str, source_name: str = "",
+                    ttl_days: int | None = None) -> dict:
         """Add plain text directly to the knowledge base."""
         r = httpx.post(
             f"{self.base}/api/knowledge/text",
-            json={"text": text, "source": source_name},
+            json={"text": text, "source": source_name, "ttl_days": ttl_days},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def update_url(self, url: str, source_name: str = "",
+                   ttl_days: int | None = None) -> dict:
+        """Delete existing chunks for a URL and re-crawl with a new TTL."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/update_url",
+            json={"url": url, "source": source_name, "ttl_days": ttl_days},
             timeout=self.timeout,
         )
         r.raise_for_status()
@@ -266,15 +279,18 @@ class AporiaClient:
         finally:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
 
-    def search_kb(self, query: str, n: int = 5) -> list[dict]:
-        """Search the knowledge base and return relevant chunks."""
+    def search_kb(self, query: str, n: int = 5,
+                  group_by_source: bool = False) -> list[dict]:
+        """Search the knowledge base; set group_by_source=True for concept-neighbor view."""
         r = httpx.get(
             f"{self.base}/api/knowledge/search",
-            params={"q": query, "n": n},
+            params={"q": query, "n": n, "group_by_source": group_by_source},
             timeout=self.timeout,
         )
         r.raise_for_status()
         data = r.json()
+        if group_by_source:
+            return data.get("neighbors", [])
         return data.get("results", data.get("chunks", []))
 
     def kb_ask(self, query: str, n: int = 8, lang: str = "en") -> dict:
@@ -286,3 +302,153 @@ class AporiaClient:
         )
         r.raise_for_status()
         return r.json()
+
+    def verify_connection(self, concept_a: str, concept_b: str,
+                          verifier_id: str = "system") -> dict:
+        """Verify KB-based connection between two concepts (no LLM)."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/verify",
+            json={"concept_a": concept_a, "concept_b": concept_b,
+                  "verifier_id": verifier_id},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def set_source_credibility(self, source: str, credibility: float) -> dict:
+        """Set the credibility weight (0.0–1.0) for a knowledge source."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/set_source_credibility",
+            json={"source": source, "credibility": credibility},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def list_kb_sources(self) -> list[dict]:
+        """List all imported knowledge sources."""
+        r = httpx.get(f"{self.base}/api/knowledge/sources", timeout=self.timeout)
+        r.raise_for_status()
+        return r.json().get("sources", [])
+
+    def delete_kb_source(self, source: str) -> dict:
+        """Delete all chunks for the specified source."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/delete_source",
+            json={"source": source},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_status_info(self) -> dict:
+        """Return KB statistics: chunk count, URL count, recent URLs."""
+        r = httpx.get(f"{self.base}/api/knowledge/status", timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def import_jsonl(self, content: str, source_name: str = "",
+                     ttl_days: int | None = None) -> dict:
+        """Import JSONL lines (each: {"text":"...","source":"..."}) into the KB."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/jsonl",
+            json={"content": content, "source": source_name, "ttl_days": ttl_days},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_audit(self,
+                 concepts: list[str] | None = None,
+                 pairs: list[dict] | None = None,
+                 pre_filter_threshold: float = 0.3,
+                 verifier_id: str = "system") -> dict:
+        """
+        Audit KB coverage for concept pairs using two-stage pipeline:
+        batch embed pre-filter → full verify for passing pairs.
+        Returns gaps / weak / strong / skipped.
+        """
+        r = httpx.post(
+            f"{self.base}/api/knowledge/audit",
+            json={
+                "concepts":             concepts or [],
+                "pairs":                pairs or [],
+                "pre_filter_threshold": pre_filter_threshold,
+                "verifier_id":          verifier_id,
+            },
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_audit_history(self, concept_a: str, concept_b: str, limit: int = 20) -> list[dict]:
+        """Return audit history for a concept pair (newest first)."""
+        r = httpx.get(
+            f"{self.base}/api/knowledge/audit/history",
+            params={"concept_a": concept_a, "concept_b": concept_b, "limit": limit},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json().get("history", [])
+
+    def kb_audit_summary(self) -> dict:
+        """Return aggregate stats across all audit runs."""
+        r = httpx.get(f"{self.base}/api/knowledge/audit/summary", timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def kb_watch_concepts(self, concepts: list[str]) -> dict:
+        """Add concepts to the audit watchlist."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/audit/watchlist",
+            json={"concepts": concepts},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_unwatch_concept(self, concept: str) -> dict:
+        """Remove a concept from the audit watchlist."""
+        r = httpx.delete(
+            f"{self.base}/api/knowledge/audit/watchlist/{concept}",
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_audit_status(self, verifier_id: str = "watchlist") -> dict:
+        """Run kb_audit on the current watchlist and return live gap status."""
+        r = httpx.get(
+            f"{self.base}/api/knowledge/audit/status",
+            params={"verifier_id": verifier_id},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_sync_file(self, file_path: str, source_name: str = "", force: bool = False) -> dict:
+        """Sync a local file into the KB (skips if unchanged unless force=True)."""
+        r = httpx.post(
+            f"{self.base}/api/knowledge/sync_file",
+            json={"file_path": file_path, "source_name": source_name, "force": force},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def kb_list_file_watches(self) -> list[dict]:
+        """List all registered files and their sync state."""
+        r = httpx.get(f"{self.base}/api/knowledge/file_watches", timeout=self.timeout)
+        r.raise_for_status()
+        return r.json().get("files", [])
+
+    def kb_report(self, format: str = "markdown", verifier_id: str = "report") -> str | dict:
+        """Generate a KB completeness report."""
+        r = httpx.get(
+            f"{self.base}/api/knowledge/report",
+            params={"format": format, "verifier_id": verifier_id},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("report", data)

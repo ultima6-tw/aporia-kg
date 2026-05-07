@@ -253,7 +253,42 @@ def init_db():
                 node_name  TEXT PRIMARY KEY,
                 done_count INTEGER NOT NULL DEFAULT 0,
                 last_seen  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS source_credibility (
+                source        TEXT PRIMARY KEY,
+                credibility   REAL NOT NULL DEFAULT 0.7,
+                import_method TEXT NOT NULL DEFAULT 'unknown',
+                updated_at    TEXT NOT NULL
             )
+        """)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS audit_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id      TEXT NOT NULL,
+                run_at      TEXT NOT NULL,
+                concept_a   TEXT NOT NULL,
+                concept_b   TEXT NOT NULL,
+                status      TEXT NOT NULL,
+                score       REAL,
+                co_mention  INTEGER,
+                verifier_id TEXT,
+                fix_hint    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_pair
+                ON audit_history (concept_a, concept_b, run_at);
+
+            CREATE TABLE IF NOT EXISTS audit_watchlist (
+                concept    TEXT PRIMARY KEY,
+                added_at   TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS file_watch_registry (
+                file_path   TEXT PRIMARY KEY,
+                source_name TEXT NOT NULL,
+                last_mtime  REAL NOT NULL DEFAULT 0,
+                last_synced TEXT
+            );
         """)
         # Add missing columns to old databases (ALTER TABLE doesn't support IF NOT EXISTS, use try/except)
         _migrate(conn)
@@ -779,3 +814,197 @@ def get_popular_nodes(min_count: int = 2, limit: int = 30) -> list[dict]:
             (min_count, limit),
         ).fetchall()
     return [{"name": r["node_name"], "count": r["done_count"]} for r in rows]
+
+
+# ── Source credibility ───────────────────────────────────────────────────────
+
+CREDIBILITY_DEFAULTS = {
+    "pdf":     0.9,
+    "text":    0.9,
+    "jsonl":   0.8,
+    "url":     0.7,
+    "crawler": 0.4,
+    "unknown": 0.5,
+}
+
+
+def set_source_credibility(source: str, credibility: float,
+                           import_method: str = "unknown") -> None:
+    """Record or update the credibility weight for a knowledge source."""
+    credibility = max(0.0, min(1.0, credibility))
+    with _DBConn() as conn:
+        conn.execute("""
+            INSERT INTO source_credibility (source, credibility, import_method, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(source) DO UPDATE SET
+                credibility   = excluded.credibility,
+                import_method = excluded.import_method,
+                updated_at    = excluded.updated_at
+        """, (source, credibility, import_method, datetime.now().isoformat()))
+
+
+def get_source_credibility(source: str) -> float:
+    """Return credibility for a source; defaults to 0.5 if unknown."""
+    with _DBConn() as conn:
+        row = conn.execute(
+            "SELECT credibility FROM source_credibility WHERE source = ?", (source,)
+        ).fetchone()
+    return row["credibility"] if row else CREDIBILITY_DEFAULTS["unknown"]
+
+
+def get_credibilities_for_sources(sources: list[str]) -> dict[str, float]:
+    """Return {source: credibility} for a list of sources. Missing → 0.5."""
+    if not sources:
+        return {}
+    with _DBConn() as conn:
+        placeholders = ",".join("?" * len(sources))
+        rows = conn.execute(
+            f"SELECT source, credibility FROM source_credibility WHERE source IN ({placeholders})",
+            sources,
+        ).fetchall()
+    result = {r["source"]: r["credibility"] for r in rows}
+    for s in sources:
+        if s not in result:
+            result[s] = CREDIBILITY_DEFAULTS["unknown"]
+    return result
+
+
+# ── Audit history ─────────────────────────────────────────────────────────────
+
+def record_audit_run(run_id: str, run_at: str, results: dict, verifier_id: str = "system") -> None:
+    """Persist all pairs from an audit run into audit_history."""
+    rows = []
+    for status_key in ("gaps", "weak", "strong", "skipped"):
+        for entry in results.get(status_key, []):
+            rows.append((
+                run_id,
+                run_at,
+                entry.get("concept_a", ""),
+                entry.get("concept_b", ""),
+                status_key.rstrip("s"),   # gaps→gap, weak→weak, strong→strong, skipped→skipped
+                entry.get("kb_support_score") or entry.get("details", {}).get("embedding_similarity"),
+                entry.get("details", {}).get("co_mention_count"),
+                verifier_id,
+                entry.get("fix_hints", {}).get("suggested_action", ""),
+            ))
+    if not rows:
+        return
+    with _DBConn() as conn:
+        conn.executemany("""
+            INSERT INTO audit_history
+              (run_id, run_at, concept_a, concept_b, status, score, co_mention, verifier_id, fix_hint)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows)
+
+
+def get_audit_history(concept_a: str, concept_b: str, limit: int = 20) -> list[dict]:
+    """Return audit history for a concept pair, newest first."""
+    lo, hi = sorted([concept_a.strip().lower(), concept_b.strip().lower()])
+    with _DBConn() as conn:
+        rows = conn.execute("""
+            SELECT run_at, concept_a, concept_b, status, score, co_mention, fix_hint
+            FROM audit_history
+            WHERE (LOWER(concept_a) = ? AND LOWER(concept_b) = ?)
+               OR (LOWER(concept_a) = ? AND LOWER(concept_b) = ?)
+            ORDER BY run_at DESC LIMIT ?
+        """, (lo, hi, hi, lo, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_audit_summary() -> dict:
+    """Return aggregate stats across all audit runs."""
+    with _DBConn() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM audit_history").fetchone()[0]
+        by_status = conn.execute("""
+            SELECT status, COUNT(*) as n FROM audit_history GROUP BY status
+        """).fetchall()
+        runs = conn.execute("SELECT COUNT(DISTINCT run_id) FROM audit_history").fetchone()[0]
+    return {
+        "total_entries": total,
+        "total_runs": runs,
+        "by_status": {r["status"]: r["n"] for r in by_status},
+    }
+
+
+# ── Audit watchlist ───────────────────────────────────────────────────────────
+
+def add_watch_concepts(concepts: list[str]) -> int:
+    """Add concepts to the audit watchlist. Returns count of newly added."""
+    from datetime import datetime
+    now = datetime.utcnow().isoformat()
+    added = 0
+    with _DBConn() as conn:
+        for c in concepts:
+            c = c.strip()
+            if not c:
+                continue
+            existing = conn.execute(
+                "SELECT 1 FROM audit_watchlist WHERE concept = ?", (c,)
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    "INSERT INTO audit_watchlist (concept, added_at) VALUES (?, ?)", (c, now)
+                )
+                added += 1
+    return added
+
+
+def remove_watch_concept(concept: str) -> bool:
+    """Remove a concept from the watchlist. Returns True if it existed."""
+    with _DBConn() as conn:
+        rows = conn.execute(
+            "DELETE FROM audit_watchlist WHERE concept = ?", (concept.strip(),)
+        ).rowcount
+    return rows > 0
+
+
+def list_watch_concepts() -> list[str]:
+    """Return all concepts in the audit watchlist, ordered by added_at."""
+    with _DBConn() as conn:
+        rows = conn.execute(
+            "SELECT concept FROM audit_watchlist ORDER BY added_at"
+        ).fetchall()
+    return [r["concept"] for r in rows]
+
+
+# ── File watch registry ───────────────────────────────────────────────────────
+
+def register_file_watch(file_path: str, source_name: str) -> None:
+    """Register a file for KB sync tracking."""
+    with _DBConn() as conn:
+        conn.execute("""
+            INSERT INTO file_watch_registry (file_path, source_name, last_mtime)
+            VALUES (?, ?, 0)
+            ON CONFLICT(file_path) DO UPDATE SET source_name = excluded.source_name
+        """, (file_path, source_name))
+
+
+def list_file_watches() -> list[dict]:
+    """Return all registered files with sync state."""
+    with _DBConn() as conn:
+        rows = conn.execute("""
+            SELECT file_path, source_name, last_mtime, last_synced
+            FROM file_watch_registry ORDER BY file_path
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_file_watch(file_path: str) -> dict | None:
+    """Return registry entry for a file, or None."""
+    with _DBConn() as conn:
+        row = conn.execute(
+            "SELECT file_path, source_name, last_mtime, last_synced FROM file_watch_registry WHERE file_path = ?",
+            (file_path,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_file_sync(file_path: str, mtime: float) -> None:
+    """Update the last-synced mtime for a file."""
+    from datetime import datetime
+    with _DBConn() as conn:
+        conn.execute("""
+            UPDATE file_watch_registry
+            SET last_mtime = ?, last_synced = ?
+            WHERE file_path = ?
+        """, (mtime, datetime.utcnow().isoformat(), file_path))

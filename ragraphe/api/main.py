@@ -48,6 +48,11 @@ from ragraphe.db.store import (
     upsert_user_knowledge, get_user_knowledge,
     record_node_feedback, get_recent_bad_nodes,
     update_node_stats, get_popular_nodes,
+    set_source_credibility, get_source_credibility,
+    get_credibilities_for_sources, CREDIBILITY_DEFAULTS,
+    get_audit_history, get_audit_summary,
+    add_watch_concepts, remove_watch_concept, list_watch_concepts,
+    register_file_watch, list_file_watches, get_file_watch, update_file_sync,
 )
 
 init_db()
@@ -192,6 +197,34 @@ class KnowledgeDeleteRequest(BaseModel):
     source: str
 
 
+class KnowledgeVerifyRequest(BaseModel):
+    concept_a:   str
+    concept_b:   str
+    verifier_id: str = "system"
+
+
+class KnowledgeAuditRequest(BaseModel):
+    concepts:              list[str] = []
+    pairs:                 list[dict] = []   # [{a: str, b: str}, ...]
+    pre_filter_threshold:  float = 0.3
+    verifier_id:           str = "system"
+
+
+class KnowledgeWatchlistRequest(BaseModel):
+    concepts: list[str]
+
+
+class KnowledgeSyncFileRequest(BaseModel):
+    file_path:   str
+    source_name: str = ""
+    force:       bool = False   # re-import even if mtime unchanged
+
+
+class KnowledgeSetCredibilityRequest(BaseModel):
+    source:      str
+    credibility: float   # 0.0 – 1.0
+
+
 class KnowledgeCrawlRequest(BaseModel):
     topic:     str
     goal_type: str = "general"
@@ -201,18 +234,27 @@ class KnowledgeURLRequest(BaseModel):
     url:        str
     source:     str = ""
     session_id: str = ""
+    ttl_days:   int | None = None  # None = category default, 0 = never expires
+
+
+class KnowledgeUpdateURLRequest(BaseModel):
+    url:      str
+    source:   str = ""            # must match what was used at import time; defaults to url
+    ttl_days: int | None = None
 
 
 class KnowledgeTextRequest(BaseModel):
     text:       str
     source:     str = "手動輸入"
     session_id: str = ""
+    ttl_days:   int | None = None  # None/omitted → never expires (existing behaviour)
 
 
 class KnowledgeJSONLRequest(BaseModel):
     content:    str
     source:     str = "匯入"
     session_id: str = ""
+    ttl_days:   int | None = None
 
 
 class KnowledgeAskRequest(BaseModel):
@@ -2959,8 +3001,8 @@ def knowledge_crawl(req: KnowledgeCrawlRequest):
 
 
 @app.get("/api/knowledge/search")
-def knowledge_search(q: str, n: int = 10):
-    """Search raw_chunks and return relevant chunks."""
+def knowledge_search(q: str, n: int = 10, group_by_source: bool = False):
+    """Search raw_chunks and return relevant chunks or source-grouped neighbors."""
     from ragraphe.core.crawler import query_raw_chunks
     from ragraphe.core.category import CATEGORY_LABEL, TIME_SENSITIVE
     if not q.strip():
@@ -2968,20 +3010,40 @@ def knowledge_search(q: str, n: int = 10):
     try:
         vec = embed(q[:300])
         chunks = query_raw_chunks(vec, n=n)
-        return {
-            "chunks": [
-                {
-                    "text":           c["text"][:300],
-                    "source":         c["source"],
-                    "source_name":    c.get("source_name", ""),
-                    "category":       c.get("category", "general"),
-                    "category_label": CATEGORY_LABEL.get(c.get("category","general"), "📄"),
-                    "time_sensitive": c.get("category","general") in TIME_SENSITIVE,
-                    "distance":       round(c["distance"], 3),
+        if not group_by_source:
+            return {
+                "chunks": [
+                    {
+                        "text":           c["text"][:300],
+                        "source":         c["source"],
+                        "source_name":    c.get("source_name", ""),
+                        "category":       c.get("category", "general"),
+                        "category_label": CATEGORY_LABEL.get(c.get("category","general"), "📄"),
+                        "time_sensitive": c.get("category","general") in TIME_SENSITIVE,
+                        "distance":       round(c["distance"], 3),
+                    }
+                    for c in chunks
+                ]
+            }
+        # Group by source — surface concept-level neighbors with best similarity score
+        sources: dict[str, dict] = {}
+        for c in chunks:
+            src = c["source"]
+            if src not in sources:
+                sources[src] = {
+                    "source":      src,
+                    "source_name": c.get("source_name", "") or src,
+                    "category":    c.get("category", "general"),
+                    "best_distance": round(c["distance"], 3),
+                    "chunk_count": 0,
+                    "snippet":     c["text"][:200],
                 }
-                for c in chunks
-            ]
-        }
+            sources[src]["chunk_count"] += 1
+            if c["distance"] < sources[src]["best_distance"]:
+                sources[src]["best_distance"] = round(c["distance"], 3)
+                sources[src]["snippet"] = c["text"][:200]
+        neighbors = sorted(sources.values(), key=lambda x: x["best_distance"])
+        return {"neighbors": neighbors}
     except Exception as e:
         return {"chunks": [], "error": str(e)}
 
@@ -3016,8 +3078,9 @@ def knowledge_add_url(req: KnowledgeURLRequest):
     if req.source:
         for c in chunks:
             c["source"] = req.source
-    store_chunks(chunks)
-    mark_url_crawled(url, len(chunks))
+    store_chunks(chunks, ttl_days=req.ttl_days)
+    mark_url_crawled(url, len(chunks), ttl_days=req.ttl_days)
+    set_source_credibility(source, CREDIBILITY_DEFAULTS["url"], "url")
     return {"ok": True, "chunks": len(chunks), "cached": False}
 
 
@@ -3033,14 +3096,20 @@ def knowledge_add_text(req: KnowledgeTextRequest):
     for c in chunks:
         if req.source:
             c["source_name"] = req.source
-    store_chunks(chunks, category="concept", ttl_days=0)
+    ttl = req.ttl_days if req.ttl_days is not None else 0  # text imports default to never-expire
+    store_chunks(chunks, category="concept", ttl_days=ttl)
+    set_source_credibility(source, CREDIBILITY_DEFAULTS["text"], "text")
     return {"ok": True, "chunks": len(chunks), "source": source}
 
 
 @app.get("/api/knowledge/sources")
 def knowledge_list_sources():
-    """List all imported sources (aggregated from ChromaDB)."""
-    return {"sources": list_chunk_sources()}
+    """List all imported sources with credibility weights."""
+    sources = list_chunk_sources()
+    creds = get_credibilities_for_sources([s["source"] for s in sources])
+    for s in sources:
+        s["credibility"]   = creds.get(s["source"], CREDIBILITY_DEFAULTS["unknown"])
+    return {"sources": sources}
 
 
 @app.post("/api/knowledge/delete_source")
@@ -3134,8 +3203,50 @@ def knowledge_add_jsonl(req: KnowledgeJSONLRequest):
             errors += 1
     if not chunks:
         return {"ok": False, "error": f"No valid data ({errors} lines failed to parse)"}
-    store_chunks(chunks)
+    store_chunks(chunks, ttl_days=req.ttl_days)
+    if req.source:
+        set_source_credibility(req.source, CREDIBILITY_DEFAULTS["jsonl"], "jsonl")
     return {"ok": True, "chunks": len(chunks), "errors": errors}
+
+
+@app.post("/api/knowledge/update_url")
+def knowledge_update_url(req: KnowledgeUpdateURLRequest):
+    """Delete existing chunks for a URL and re-crawl it with a new TTL."""
+    from ragraphe.core.crawler import fetch_text, chunk_text, store_chunks
+    from ragraphe.db.store import _DBConn
+    source = req.source or req.url
+    delete_chunks_by_source(source)
+    with _DBConn() as conn:
+        conn.execute("DELETE FROM crawled_urls WHERE url = ?", (req.url,))
+    text = fetch_text(req.url)
+    if not text:
+        return {"ok": False, "error": "Failed to retrieve page content"}
+    chunks = chunk_text(text, source)
+    if req.source:
+        for c in chunks:
+            c["source"] = req.source
+    store_chunks(chunks, ttl_days=req.ttl_days)
+    mark_url_crawled(req.url, len(chunks), ttl_days=req.ttl_days)
+    set_source_credibility(source, CREDIBILITY_DEFAULTS["url"], "url")
+    return {"ok": True, "chunks": len(chunks), "refreshed": True}
+
+
+@app.post("/api/knowledge/verify")
+def knowledge_verify(req: KnowledgeVerifyRequest):
+    """Verify connection between two concepts using KB evidence (no LLM)."""
+    from ragraphe.core.verifier import verify_connection
+    if not req.concept_a.strip() or not req.concept_b.strip():
+        return {"error": "Both concept_a and concept_b are required"}
+    return verify_connection(req.concept_a, req.concept_b, req.verifier_id)
+
+
+@app.post("/api/knowledge/set_source_credibility")
+def knowledge_set_credibility(req: KnowledgeSetCredibilityRequest):
+    """Manually set the credibility weight (0.0–1.0) for a knowledge source."""
+    if not req.source:
+        return {"ok": False, "error": "source cannot be empty"}
+    set_source_credibility(req.source, req.credibility, import_method="manual")
+    return {"ok": True, "source": req.source, "credibility": req.credibility}
 
 
 @app.post("/api/knowledge/ask")
@@ -3186,6 +3297,113 @@ def knowledge_ask(req: KnowledgeAskRequest):
         return {"answer": answer, "sources": sources, "chunks_used": len(chunks)}
     except Exception as e:
         return {"answer": "", "sources": [], "chunks_used": 0, "error": str(e)}
+
+
+@app.post("/api/knowledge/audit")
+def knowledge_audit(req: KnowledgeAuditRequest):
+    """Two-stage KB coverage audit. Results are also persisted to audit_history."""
+    from ragraphe.core.verifier import audit_connections
+    if not req.concepts and not req.pairs:
+        return {"error": "Provide either 'concepts' or 'pairs'"}
+    return audit_connections(
+        concepts=req.concepts or None,
+        pairs=req.pairs or None,
+        pre_filter_threshold=req.pre_filter_threshold,
+        verifier_id=req.verifier_id,
+    )
+
+
+@app.get("/api/knowledge/audit/history")
+def knowledge_audit_history(concept_a: str, concept_b: str, limit: int = 20):
+    """Return audit history for a concept pair, newest first."""
+    return {"history": get_audit_history(concept_a, concept_b, limit)}
+
+
+@app.get("/api/knowledge/audit/summary")
+def knowledge_audit_summary_endpoint():
+    """Return aggregate stats across all audit runs."""
+    return get_audit_summary()
+
+
+@app.get("/api/knowledge/audit/watchlist")
+def knowledge_watchlist_get():
+    """List all concepts in the audit watchlist."""
+    return {"concepts": list_watch_concepts()}
+
+
+@app.post("/api/knowledge/audit/watchlist")
+def knowledge_watchlist_add(req: KnowledgeWatchlistRequest):
+    """Add concepts to the audit watchlist."""
+    added = add_watch_concepts(req.concepts)
+    return {"ok": True, "added": added, "concepts": list_watch_concepts()}
+
+
+@app.delete("/api/knowledge/audit/watchlist/{concept}")
+def knowledge_watchlist_remove(concept: str):
+    """Remove a concept from the audit watchlist."""
+    removed = remove_watch_concept(concept)
+    return {"ok": removed, "concepts": list_watch_concepts()}
+
+
+@app.get("/api/knowledge/audit/status")
+def knowledge_audit_status(verifier_id: str = "watchlist"):
+    """Run kb_audit on the current watchlist and return live gap status."""
+    from ragraphe.core.verifier import audit_connections
+    concepts = list_watch_concepts()
+    if not concepts:
+        return {"error": "Watchlist is empty — add concepts with POST /api/knowledge/audit/watchlist"}
+    return audit_connections(concepts=concepts, verifier_id=verifier_id)
+
+
+@app.get("/api/knowledge/file_watches")
+def knowledge_file_watches():
+    """List all registered files and their sync state."""
+    return {"files": list_file_watches()}
+
+
+@app.get("/api/knowledge/report")
+def knowledge_report(format: str = "markdown", verifier_id: str = "report"):
+    """Generate a KB completeness report (sources, watchlist gaps, history, synced files)."""
+    from ragraphe.core.verifier import generate_report
+    result = generate_report(format=format, verifier_id=verifier_id)
+    if format == "markdown":
+        return {"report": result, "format": "markdown"}
+    return result
+
+
+@app.post("/api/knowledge/sync_file")
+def knowledge_sync_file(req: KnowledgeSyncFileRequest):
+    """
+    Sync a local file into the KB.
+    Compares file mtime against the last-synced mtime; skips if unchanged (unless force=True).
+    On change: deletes old chunks and re-imports.
+    Also registers the file in file_watch_registry for future sync calls.
+    """
+    from ragraphe.core.crawler import chunk_text, store_chunks, delete_chunks_by_source
+    import os
+    from pathlib import Path
+
+    file_path = req.file_path
+    if not os.path.isfile(file_path):
+        return {"ok": False, "error": f"File not found: {file_path}"}
+
+    source_name = req.source_name or Path(file_path).name
+    register_file_watch(file_path, source_name)
+
+    mtime = os.path.getmtime(file_path)
+    watch = get_file_watch(file_path)
+    if not req.force and watch and mtime <= watch["last_mtime"]:
+        return {"ok": True, "changed": False, "source": source_name,
+                "message": "File unchanged since last sync"}
+
+    text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+    delete_chunks_by_source(source_name)
+    chunks = chunk_text(text, source_name)
+    store_chunks(chunks, category="concept", ttl_days=0)
+    set_source_credibility(source_name, CREDIBILITY_DEFAULTS["text"], "text")
+    update_file_sync(file_path, mtime)
+
+    return {"ok": True, "changed": True, "chunks": len(chunks), "source": source_name}
 
 
 # ── Frontend HTML ─────────────────────────────────────────────────────────────

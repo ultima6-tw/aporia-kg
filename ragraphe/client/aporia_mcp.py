@@ -202,7 +202,8 @@ def list_sessions() -> list[dict]:
 # ── Knowledge Base tools ──────────────────────────────────────────────────────
 
 @mcp.tool()
-def kb_import_url(url: str, source_name: str = "") -> dict:
+def kb_import_url(url: str, source_name: str = "",
+                  ttl_days: int | None = None) -> dict:
     """
     Crawl a webpage and add its content to the knowledge base.
     Use this for documentation pages, wikis, or any web resource.
@@ -210,8 +211,25 @@ def kb_import_url(url: str, source_name: str = "") -> dict:
     Args:
         url: URL to crawl and import
         source_name: Human-readable label for this source (defaults to URL)
+        ttl_days: Days until content expires (None = category default, 0 = never expires)
     """
-    return _client.import_url(url, source_name)
+    return _client.import_url(url, source_name, ttl_days=ttl_days)
+
+
+@mcp.tool()
+def kb_update_url(url: str, source_name: str = "",
+                  ttl_days: int | None = None) -> dict:
+    """
+    Re-crawl an existing URL source to refresh its content in the knowledge base.
+    Deletes all existing chunks for this source before re-importing.
+    Use this when a page has been updated and you want the latest version.
+
+    Args:
+        url: URL to re-crawl
+        source_name: Must match the label used when originally imported (defaults to URL)
+        ttl_days: Days until content expires (None = category default, 0 = never expires)
+    """
+    return _client.update_url(url, source_name, ttl_days=ttl_days)
 
 
 @mcp.tool()
@@ -228,7 +246,8 @@ def kb_import_pdf(pdf_url: str, source_name: str = "") -> dict:
 
 
 @mcp.tool()
-def kb_import_text(text: str, source_name: str = "") -> dict:
+def kb_import_text(text: str, source_name: str = "",
+                   ttl_days: int | None = None) -> dict:
     """
     Add plain text directly to the knowledge base.
     Use this for pasting in notes, specs, or any text content.
@@ -236,21 +255,123 @@ def kb_import_text(text: str, source_name: str = "") -> dict:
     Args:
         text: The text content to import
         source_name: Human-readable label for this source
+        ttl_days: Days until content expires (None/omitted = never expires, matches original behaviour)
     """
-    return _client.import_text(text, source_name)
+    return _client.import_text(text, source_name, ttl_days=ttl_days)
 
 
 @mcp.tool()
-def kb_search(query: str, n: int = 5) -> list[dict]:
+def kb_search(query: str, n: int = 5, group_by_source: bool = False) -> list[dict]:
     """
-    Search the knowledge base for relevant chunks.
-    Use this to verify imported content or look up specific information.
+    Search the knowledge base for relevant chunks or concept-level neighbors.
 
     Args:
         query: Search query (semantic search)
         n: Number of results to return (default 5)
+        group_by_source: False (default) → raw chunks with text snippets;
+                         True → results grouped by source with best similarity score,
+                         useful for discovering which knowledge sources are related to a concept
     """
-    return _client.search_kb(query, n)
+    return _client.search_kb(query, n, group_by_source=group_by_source)
+
+
+@mcp.tool()
+def kb_verify(concept_a: str, concept_b: str, verifier_id: str = "system") -> dict:
+    """
+    Verify the connection between two concepts using KB evidence only — no LLM involved.
+    Primary use case: ground-truth-free agent evaluation. When an agent claims two
+    concepts are related, kb_verify measures that claim against KB evidence without
+    asking another LLM to judge — breaking the circular trust problem of LLM-as-judge.
+
+    Agent evaluation workflow: import domain knowledge → run agent → call kb_verify
+    on each claim → accumulate reports across verifier_ids to build consensus.
+
+    All measurements are system-computed (embedding similarity, co-mention count,
+    weighted source credibility score, KB coverage).
+
+    Each call stores a verification report in the KB. Confidence accumulates across
+    independent verifications: the more distinct verifier_ids confirm the connection,
+    the higher prior_verifications becomes.
+
+    Returns:
+        kb_support_score:    overall support score (0–1), default weighted formula
+        details:             raw measurements — use these to apply your own weights
+          embedding_similarity:   cosine similarity of the two concept embeddings
+          bidirectional:          True if each concept appears in the other's neighborhood
+          co_mention_count:       chunks mentioning both concepts (verify:// excluded)
+          weighted_source_score:  sum of credibility weights of supporting sources
+          kb_coverage_a/b:        how well KB covers each concept independently (0–1)
+        prior_verifications: number of distinct prior verifier_ids that confirmed this pair
+        data_sufficient:     False if KB has too little content about either concept
+
+    Args:
+        concept_a:   First concept (free text)
+        concept_b:   Second concept (free text)
+        verifier_id: Identifier for the caller — used to count independent verifications
+    """
+    return _client.verify_connection(concept_a, concept_b, verifier_id)
+
+
+@mcp.tool()
+def kb_set_credibility(source: str, credibility: float) -> dict:
+    """
+    Set the credibility weight for a knowledge source.
+    Affects weighted_source_score in future kb_verify calls.
+
+    Use kb_list_sources to find exact source names.
+
+    Args:
+        source:      Exact source name (as returned by kb_list_sources)
+        credibility: Weight from 0.0 (untrusted) to 1.0 (fully trusted).
+                     Defaults: pdf/text=0.9, jsonl=0.8, url=0.7, crawler=0.4
+    """
+    return _client.set_source_credibility(source, credibility)
+
+
+@mcp.tool()
+def kb_list_sources() -> list[dict]:
+    """
+    List all knowledge sources currently in the knowledge base.
+    Shows source names and chunk counts — useful for auditing what's been imported.
+    """
+    return _client.list_kb_sources()
+
+
+@mcp.tool()
+def kb_delete_source(source: str) -> dict:
+    """
+    Delete all chunks belonging to a specific knowledge source.
+    Use kb_list_sources first to find the exact source name.
+
+    Args:
+        source: Exact source name as returned by kb_list_sources
+    """
+    return _client.delete_kb_source(source)
+
+
+@mcp.tool()
+def kb_status() -> dict:
+    """
+    Return knowledge base statistics: total chunk count, URL count, and recently crawled URLs.
+    Use this to get a quick health check of the knowledge base.
+    """
+    return _client.kb_status_info()
+
+
+@mcp.tool()
+def kb_import_jsonl(content: str, source_name: str = "",
+                    ttl_days: int | None = None) -> dict:
+    """
+    Batch-import structured knowledge as JSONL into the knowledge base.
+    Each line must be a JSON object with a "text" field and optional "source" field.
+    Example line: {"text": "The API key expires after 90 days.", "source": "security-policy"}
+
+    Args:
+        content: JSONL string (one JSON object per line)
+        source_name: Fallback source label if individual lines don't specify one
+        ttl_days: Days until content expires (None = category default, 0 = never expires)
+    """
+    return _client.import_jsonl(content, source_name, ttl_days=ttl_days)
 
 
 @mcp.tool()
@@ -270,6 +391,151 @@ def kb_ask(query: str, lang: str = "en") -> dict:
         chunks_used: Number of context chunks retrieved
     """
     return _client.kb_ask(query, lang=lang)
+
+
+@mcp.tool()
+def kb_audit(concepts: list[str] = [], pairs: list[dict] = [],
+             pre_filter_threshold: float = 0.3,
+             verifier_id: str = "system") -> dict:
+    """
+    Audit KB coverage for a set of concepts or concept pairs.
+
+    Two-stage pipeline for agent evaluation and documentation gap detection:
+      Stage 1 — Pre-filter: batch embed all concepts and compute pairwise
+        cosine similarity. Pairs below pre_filter_threshold are skipped
+        (semantically distant pairs are expected to have no co-mention).
+      Stage 2 — Full verify: run kb_verify on each passing pair, storing
+        reports in ChromaDB for future reference.
+
+    Results are grouped as:
+      gaps   — co_mention_count == 0: design intent not reflected in KB.
+               Each gap includes fix_hints: which sources to add docs to.
+      weak   — co_mention > 0 but kb_support_score < 0.6
+      strong — kb_support_score >= 0.6, connection well-supported
+      skipped — filtered out by pre_filter_threshold
+
+    Use this to find documentation gaps, verify agent claims in bulk, or
+    audit that key design concepts are mutually documented in your KB.
+
+    Args:
+        concepts:             List of concepts — all pairs checked automatically
+        pairs:                Explicit pairs as [{"a": "...", "b": "..."}, ...]
+                              (use instead of concepts for targeted checks)
+        pre_filter_threshold: Min embedding similarity to run full verify (default 0.3)
+        verifier_id:          Caller identifier for tracking independent verifications
+    """
+    return _client.kb_audit(
+        concepts=concepts or None,
+        pairs=pairs or None,
+        pre_filter_threshold=pre_filter_threshold,
+        verifier_id=verifier_id,
+    )
+
+
+@mcp.tool()
+def kb_audit_history(concept_a: str, concept_b: str, limit: int = 20) -> list[dict]:
+    """
+    Return the audit history for a specific concept pair, newest first.
+    Shows whether a gap was present in past runs and when it was resolved.
+    Useful for tracking documentation completeness over time.
+
+    Args:
+        concept_a: First concept
+        concept_b: Second concept
+        limit:     Max number of historical entries to return (default 20)
+    """
+    return _client.kb_audit_history(concept_a, concept_b, limit)
+
+
+@mcp.tool()
+def kb_watch_concepts(concepts: list[str]) -> dict:
+    """
+    Add concepts to the audit watchlist.
+    The watchlist is persistent — use kb_audit_status to run a live audit
+    on all watched concepts at any time, without re-specifying the list.
+
+    Args:
+        concepts: List of concepts to monitor (e.g. ["kb_verify", "agent evaluation"])
+    """
+    return _client.kb_watch_concepts(concepts)
+
+
+@mcp.tool()
+def kb_unwatch_concept(concept: str) -> dict:
+    """
+    Remove a concept from the audit watchlist.
+
+    Args:
+        concept: Exact concept name to remove
+    """
+    return _client.kb_unwatch_concept(concept)
+
+
+@mcp.tool()
+def kb_audit_status(verifier_id: str = "watchlist") -> dict:
+    """
+    Run kb_audit on the current watchlist and return live gap status.
+    Use this at the start of a work session to know what connections are
+    still missing from the KB — the system tells you what to do next.
+
+    Returns the same structure as kb_audit: gaps / weak / strong / skipped,
+    with fix_hints for each gap pointing to where documentation should be added.
+
+    Args:
+        verifier_id: Identifier for this audit run (default "watchlist")
+    """
+    return _client.kb_audit_status(verifier_id)
+
+
+@mcp.tool()
+def kb_sync_file(file_path: str, source_name: str = "", force: bool = False) -> dict:
+    """
+    Sync a local file into the KB.
+    Compares file modification time against last sync — skips if unchanged.
+    On change: deletes old chunks and re-imports the updated content.
+    Registers the file for future sync tracking (visible in kb_list_file_watches).
+
+    Use this after editing a source file to keep the KB current without
+    manually deleting and re-importing.
+
+    Args:
+        file_path:   Absolute path to the file
+        source_name: KB source label (defaults to filename)
+        force:       Re-import even if file is unchanged (default False)
+    """
+    return _client.kb_sync_file(file_path, source_name, force)
+
+
+@mcp.tool()
+def kb_list_file_watches() -> list[dict]:
+    """
+    List all files registered for KB sync tracking.
+    Shows file path, source name, last sync time, and whether the file
+    has been modified since the last sync.
+    """
+    return _client.kb_list_file_watches()
+
+
+@mcp.tool()
+def kb_report(format: str = "markdown", verifier_id: str = "report") -> str | dict:
+    """
+    Generate a KB completeness report combining all system state into one document.
+
+    The report covers:
+    - Knowledge sources: all imported content, chunk counts, credibility weights
+    - Audit watchlist + live coverage: current gaps / weak / strong with fix_hints
+    - Audit history summary: trend across all past runs (total runs, status breakdown)
+    - Synced files: registered files and whether they're stale since last sync
+
+    Use this at the start of a session to understand the full state of the KB,
+    or share it as a structured handoff document for other agents or humans.
+
+    Args:
+        format:      "markdown" (default) — human-readable document like PROJECT.md
+                     "json" — structured dict for further processing
+        verifier_id: Identifier for the audit run triggered by this report
+    """
+    return _client.kb_report(format=format, verifier_id=verifier_id)
 
 
 if __name__ == "__main__":

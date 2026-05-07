@@ -227,6 +227,7 @@ ragraphe/
 │   └── app.js           # Graph + chat logic (force-graph, SSE, i18n)
 ├── core/
 │   ├── crawler.py       # Web crawler (Wikipedia + DuckDuckGo fallback)
+│   ├── verifier.py      # KB connection verifier (kb_verify + kb_audit, no LLM)
 │   ├── conversation.py  # Conversation utilities
 │   └── category.py      # Content category inference
 ├── config/
@@ -245,9 +246,9 @@ ragraphe/
 
 ---
 
-## MCP Integration (Claude Code)
+## MCP Integration
 
-Aporia KG ships a FastMCP server (`ragraphe/client/aporia_mcp.py`) that lets AI agents use Aporia KG as a goal-decomposition and task-tracking anchor.
+Aporia KG ships a FastMCP server (`ragraphe/client/aporia_mcp.py`) that exposes 22 tools across two categories: **goal-planning** and **knowledge base**. Any MCP-compatible agent (Claude Code, Cursor, or a custom script) can use these tools to decompose goals, manage tasks, import knowledge, verify concept connections, and audit documentation gaps.
 
 ### Register the server
 
@@ -256,13 +257,27 @@ claude mcp add aporia-kg -s user \
   -- /path/to/aporia-kg/.venv/bin/python -m ragraphe.client.aporia_mcp
 ```
 
-### Available MCP tools
+Or add to your MCP config manually:
+
+```json
+{
+  "mcpServers": {
+    "aporia-kg": {
+      "command": "/path/to/aporia-kg/.venv/bin/python",
+      "args": ["-m", "ragraphe.client.aporia_mcp"],
+      "cwd": "/path/to/aporia-kg"
+    }
+  }
+}
+```
+
+### Planning tools
 
 | Tool | Description |
 |------|-------------|
-| `plan_goal` | Decompose a goal into a task graph; returns session_id + initial nodes |
-| `get_nodes` | List all nodes with status; optionally filter by todo/done/skip/unknown |
-| `get_todo_nodes` | Get only remaining tasks (todo + unknown) — use to stay focused |
+| `plan_goal` | Decompose a goal into an atomic task graph; returns `session_id` + nodes |
+| `get_nodes` | List all nodes with status; optionally filter by `todo/done/skip/unknown` |
+| `get_todo_nodes` | Get only remaining tasks — use this to stay focused |
 | `mark_done` | Mark a task node as completed |
 | `mark_skip` | Mark a task node as skipped |
 | `add_node` | Manually add a task node the AI didn't suggest |
@@ -270,7 +285,125 @@ claude mcp add aporia-kg -s user \
 | `export_markdown` | Export the task graph as a Markdown checklist |
 | `list_sessions` | List all past planning sessions |
 
-**Example use case:** An agent building a research paper calls `plan_goal("write a paper on transformer attention")`, then iterates with `get_todo_nodes` to always know what's left, calling `mark_done` after completing each section.
+### Knowledge base tools
+
+| Tool | Description |
+|------|-------------|
+| `kb_import_url` | Crawl a webpage and add its content to the KB |
+| `kb_update_url` | Re-crawl an existing URL source to refresh its content |
+| `kb_import_pdf` | Download a PDF from a URL and import it |
+| `kb_import_text` | Add plain text directly to the KB |
+| `kb_import_jsonl` | Batch-import structured knowledge (JSONL, one `{"text":"..."}` per line) |
+| `kb_search` | Semantic search; set `group_by_source=True` for concept-neighbor view |
+| `kb_ask` | Get a grounded answer from the KB — no hallucination, cites sources |
+| `kb_verify` | Verify the connection between two concepts using KB evidence (no LLM) |
+| `kb_audit` | Audit KB coverage for a set of concepts — find documentation gaps |
+| `kb_set_credibility` | Set the trust weight (0.0–1.0) for a knowledge source |
+| `kb_list_sources` | List all imported sources with chunk counts and credibility |
+| `kb_delete_source` | Delete all chunks belonging to a source |
+| `kb_status` | KB health check: total chunks, URL count, recently crawled sources |
+
+---
+
+## Automated Usage Patterns
+
+### Pattern 1 — Task tracking agent
+
+An agent building a research paper calls `plan_goal` once, then loops:
+
+```
+plan_goal("write a paper on transformer attention mechanisms")
+  → session_id, initial nodes
+
+loop:
+  get_todo_nodes(session_id)     → what's left
+  ... do work on the next task ...
+  mark_done(session_id, node_id)
+  → repeat until remaining == 0
+
+export_markdown(session_id)      → paste into Notion / Obsidian
+```
+
+### Pattern 2 — Company knowledge hub
+
+Any MCP-capable tool can push knowledge into Aporia KG and any other agent can query it out. Aporia KG acts as the protocol layer — it handles chunking, embedding, semantic search, and freshness tracking.
+
+```
+# Agent A (document ingestion):
+kb_import_url("https://internal-wiki/onboarding", source_name="Onboarding Guide", ttl_days=30)
+kb_import_pdf("https://docs/api-reference.pdf", source_name="API Reference")
+kb_import_jsonl('{"text":"Deploy with: docker run ...","source":"ops-runbook"}', source_name="Runbooks")
+
+# Agent B (query at work time):
+kb_ask("How do I deploy a hotfix to production?")
+  → grounded answer with source citations, no hallucination
+
+kb_search("authentication flow", n=5)
+  → top relevant chunks across all imported sources
+```
+
+TTL (`ttl_days`) makes content self-expiring. Set `ttl_days=1` for live prices, `ttl_days=365` for stable docs.
+
+Source credibility weights let you rank signal over noise:
+
+```
+kb_set_credibility("Onboarding Guide", 0.9)   # internal docs — high trust
+kb_set_credibility("web-crawler-news", 0.3)   # scraped news — lower trust
+```
+
+### Pattern 3 — KB verification and audit
+
+`kb_verify` checks whether two concepts are actually connected in the KB — without asking an LLM. All numbers come from embedding arithmetic and document statistics.
+
+```
+kb_verify("deployment", "rollback procedure", verifier_id="ops-agent")
+→ {
+    kb_support_score: 0.72,
+    details: { embedding_similarity: 0.61, co_mention_count: 3, ... },
+    prior_verifications: 1
+  }
+```
+
+`kb_audit` runs this check for an entire set of concepts at once, using a two-stage pipeline to avoid unnecessary work:
+
+```
+kb_audit(
+  concepts=["deployment", "rollback procedure", "monitoring", "on-call runbook", "incident response"],
+  pre_filter_threshold=0.3   # skip pairs that are semantically unrelated
+)
+→ {
+    summary: { total_pairs: 10, verified: 8, gaps: 3, weak: 2, strong: 3 },
+    gaps: [
+      {
+        concept_a: "monitoring",
+        concept_b: "on-call runbook",
+        fix_hints: {
+          sources_with_a_only: ["Runbooks"],
+          suggested_action: "Add mention of 'on-call runbook' to: Runbooks"
+        }
+      },
+      ...
+    ]
+  }
+```
+
+**Use kb_audit for code and documentation coverage:** import your codebase and design docs, then audit key concept pairs. `co_mention_count == 0` means the connection exists in your head but not in the code — the gap will cause confusion for future readers and downstream agents.
+
+**How the two-stage pre-filter works:**
+
+```
+Stage 1 — Pre-filter (fast):
+  Batch-embed all N concepts in one API call.
+  Compute pairwise cosine similarity (pure math, no KB queries).
+  Pairs below pre_filter_threshold → skipped (semantically unrelated).
+
+Stage 2 — Full verify (only for passing pairs):
+  Run kb_verify: co-mention count, source credibility, neighborhood check.
+  Store each report in ChromaDB for future reference.
+  prior_verifications accumulates across independent verifier_ids.
+```
+
+This keeps the audit tractable for large concept sets — a 20-concept audit (190 pairs) might only need 40–60 full verifications after pre-filtering.
 
 ---
 
