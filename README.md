@@ -45,7 +45,7 @@ Small orbiting dots around nodes are **knowledge satellites** — content fragme
 - **Deep-dive exploration** — click any node or satellite to auto-send a sub-topic breakdown request to the AI
 - **Dynamic theme anchor** — deep-dive uses the most important node in that area as context, not just the initial goal
 - **RAG knowledge satellites** — orbiting dots show snippets scored for relevance + freshness; generic content the LLM already knows is filtered out
-- **Satellite scoring** — multi-category bonuses (a chunk can belong to travel + news simultaneously; best bonus + fastest decay applied), exponential time-decay for time-sensitive content, auto re-crawl when content goes stale
+- **Satellite scoring** — multi-category bonuses (a node can belong to travel + news simultaneously; best bonus + fastest decay applied), exponential time-decay for time-sensitive content, auto re-crawl when content goes stale
 - **Content-language filter** — EN / ZH / JA toggle buttons filter which knowledge base languages appear as satellites
 - **KB source filter** — per-session checkbox to select which imported documents contribute to satellite knowledge
 - **Note Mode** — toggle off automatic node generation; AI still responds, you build the map manually
@@ -58,7 +58,7 @@ Small orbiting dots around nodes are **knowledge satellites** — content fragme
 - **Popularity heatmap** — nodes completed by many users get an amber ring + ★ indicator
 - **Coverage visualization** — glass-ball nodes fill up as a topic gets discussed
 - **Markdown export** — done/todo/skip checklist for Notion, Obsidian, etc.
-- **Knowledge base import** — PDF, URL, plain text, topic crawl (large PDFs supported — tested with 1866-page instrument manuals)
+- **Knowledge base import** — PDF, URL, plain text, JSONL; content is extracted into Obsidian-style atomic notes by Gemini (title + summary + explicit concept links), not raw text chunks — large PDFs use map-reduce with TOC-based splitting
 - **MCP server** — use Aporia KG as a goal-decomposition + task-tracking tool inside Claude Code or any MCP-compatible AI agent
 - **Multi-language** — Traditional Chinese, English, Japanese (UI + AI responses)
 - **PostgreSQL support** — set `DATABASE_URL` to switch from SQLite
@@ -87,8 +87,8 @@ User input
 |-----------|-----------|
 | LLM | Gemini 2.5 Flash (default) or Ollama (fully local) |
 | Embeddings | Gemini embedding-2 (3072d) or nomic-embed-text via Ollama (768d) |
-| Vector DB | ChromaDB (local) |
-| Relational DB | SQLite (default) or PostgreSQL |
+| Vector DB | ChromaDB (local) — notes collection + satellite raw_chunks |
+| Relational DB | SQLite (default) or PostgreSQL — notes, audit history, credibility |
 | Backend | FastAPI + SSE streaming |
 | Frontend | force-graph (canvas 2D), vanilla JS — no build step |
 
@@ -172,7 +172,7 @@ Use the **Knowledge Base panel** (📚 icon in the top bar) to import:
 | **Plain text** | Paste notes, documentation, anything |
 | **Topic crawl** | Enter a topic — auto-fetches Wikipedia + web results |
 
-All content is chunked, embedded, and stored locally in ChromaDB. The content language (EN / ZH / JA) is auto-detected and tagged, so you can filter which languages appear as knowledge satellites per session.
+All content is passed through Gemini at import time and extracted into **Obsidian-style atomic notes** (title + 1–3 sentence summary + explicit concept links). Notes are embedded and stored locally in ChromaDB + SQLite. The content language (EN / ZH / JA) is auto-detected and tagged, so you can filter which languages appear as knowledge satellites per session.
 
 **Without any imports**, Aporia KG still works — the AI plans nodes from its own knowledge. The knowledge base just makes the satellite snippets more relevant and the planner more context-aware.
 
@@ -226,7 +226,8 @@ ragraphe/
 │   ├── style.css        # Styles
 │   └── app.js           # Graph + chat logic (force-graph, SSE, i18n)
 ├── core/
-│   ├── crawler.py       # Web crawler (Wikipedia + DuckDuckGo fallback)
+│   ├── extractor.py     # Obsidian-style note extraction (Gemini, map-reduce for large docs)
+│   ├── crawler.py       # Web crawler (Wikipedia + DuckDuckGo) + satellite raw_chunks
 │   ├── verifier.py      # KB connection verifier (kb_verify + kb_audit, no LLM)
 │   ├── conversation.py  # Conversation utilities
 │   └── category.py      # Content category inference
@@ -285,7 +286,7 @@ Or add to your MCP config manually:
 | `export_markdown` | Export the task graph as a Markdown checklist |
 | `list_sessions` | List all past planning sessions |
 
-### Knowledge base tools
+### Knowledge base tools — Import & Search
 
 | Tool | Description |
 |------|-------------|
@@ -296,12 +297,29 @@ Or add to your MCP config manually:
 | `kb_import_jsonl` | Batch-import structured knowledge (JSONL, one `{"text":"..."}` per line) |
 | `kb_search` | Semantic search; set `group_by_source=True` for concept-neighbor view |
 | `kb_ask` | Get a grounded answer from the KB — no hallucination, cites sources |
-| `kb_verify` | Verify the connection between two concepts using KB evidence (no LLM) |
-| `kb_audit` | Audit KB coverage for a set of concepts — find documentation gaps |
 | `kb_set_credibility` | Set the trust weight (0.0–1.0) for a knowledge source |
-| `kb_list_sources` | List all imported sources with chunk counts and credibility |
-| `kb_delete_source` | Delete all chunks belonging to a source |
-| `kb_status` | KB health check: total chunks, URL count, recently crawled sources |
+| `kb_list_sources` | List all imported sources with note counts and credibility |
+| `kb_delete_source` | Delete all notes belonging to a source |
+| `kb_status` | KB health check: total notes, source count, URL count |
+
+### Knowledge base tools — Verification & Audit
+
+| Tool | Description |
+|------|-------------|
+| `kb_verify` | Verify the connection between two concepts using KB evidence (no LLM) — returns `kb_support_score` + 5 detail signals |
+| `kb_audit` | Batch audit a set of concepts — two-stage pipeline (pre-filter by embedding similarity, then full verify) |
+| `kb_audit_history` | Return the audit history for a concept pair, newest first — track whether a gap was open or closed |
+| `kb_watch_concepts` | Add concepts to the persistent audit watchlist (survives restarts) |
+| `kb_unwatch_concept` | Remove a concept from the watchlist |
+| `kb_audit_status` | Run `kb_audit` on the current watchlist — call at session start to see live gap status |
+| `kb_report` | Generate a full KB completeness report (sources, watchlist gaps with fix_hints, audit trends) |
+
+### Knowledge base tools — File Sync
+
+| Tool | Description |
+|------|-------------|
+| `kb_sync_file` | Sync a local file into the KB — skips if unchanged (mtime check), re-extracts on change |
+| `kb_list_file_watches` | List all registered files with path, source name, last sync time, and staleness |
 
 ---
 
@@ -339,7 +357,7 @@ kb_ask("How do I deploy a hotfix to production?")
   → grounded answer with source citations, no hallucination
 
 kb_search("authentication flow", n=5)
-  → top relevant chunks across all imported sources
+  → top relevant notes across all imported sources (title + summary + links)
 ```
 
 TTL (`ttl_days`) makes content self-expiring. Set `ttl_days=1` for live prices, `ttl_days=365` for stable docs.
@@ -398,8 +416,8 @@ Stage 1 — Pre-filter (fast):
   Pairs below pre_filter_threshold → skipped (semantically unrelated).
 
 Stage 2 — Full verify (only for passing pairs):
-  Run kb_verify: co-mention count, source credibility, neighborhood check.
-  Store each report in ChromaDB for future reference.
+  Run kb_verify: explicit link check, co-mention count, source credibility, neighborhood check.
+  Store each report in SQLite audit_history for future reference.
   prior_verifications accumulates across independent verifier_ids.
 ```
 

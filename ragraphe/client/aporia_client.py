@@ -250,11 +250,9 @@ class AporiaClient:
         r.raise_for_status()
         return r.json()
 
-    def import_pdf_from_url(self, pdf_url: str, source_name: str = "",
-                            batch_pages: int = 50) -> dict:
-        """Download a PDF and import it page-by-page in batches (avoids upload timeout)."""
+    def import_pdf_from_url(self, pdf_url: str, source_name: str = "") -> dict:
+        """Download a PDF and import it as notes using TOC-based extraction."""
         import tempfile, pathlib
-        from pypdf import PdfReader
 
         resp = httpx.get(pdf_url, timeout=self.timeout, follow_redirects=True)
         resp.raise_for_status()
@@ -262,20 +260,17 @@ class AporiaClient:
             f.write(resp.content)
             tmp_path = f.name
         try:
-            reader = PdfReader(tmp_path)
             label = source_name or pdf_url
-            total_chunks = 0
-            for i in range(0, len(reader.pages), batch_pages):
-                batch = reader.pages[i:i + batch_pages]
-                texts = [(pg.extract_text() or "").strip() for pg in batch]
-                batch_text = "\n\n".join(t for t in texts if t)
-                if not batch_text:
-                    continue
-                batch_label = f"{label} (p{i+1}-{i+len(batch)})"
-                r = self.import_text(batch_text, batch_label)
-                total_chunks += r.get("chunks", 0)
-            return {"ok": True, "chunks": total_chunks, "pages": len(reader.pages),
-                    "source": label}
+            filename = pathlib.Path(pdf_url.split("?")[0]).name or "document.pdf"
+            with open(tmp_path, "rb") as pdf_file:
+                r = httpx.post(
+                    f"{self.base}/api/knowledge/pdf",
+                    data={"source_name": label},
+                    files={"file": (filename, pdf_file, "application/pdf")},
+                    timeout=self.timeout,
+                )
+            r.raise_for_status()
+            return r.json()
         finally:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
 

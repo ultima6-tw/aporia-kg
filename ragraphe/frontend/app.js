@@ -83,7 +83,7 @@ const TRANSLATIONS = {
     'kb.url_name_ph':       '來源名稱（選填）',
     'kb.url_btn':           '抓取並加入知識庫',
     'kb.url_cached':        '✓ 已快取（近期爬過）',
-    'kb.url_ok':            '✓ 已加入 {count} 個 chunks',
+    'kb.url_ok':            '✓ 已加入 {count} 個 notes',
     'kb.text_ph':           '貼入文字內容...',
     'kb.text_src_ph':       '來源名稱（例：論文名稱）',
     'kb.text_btn':          '加入知識庫',
@@ -92,7 +92,7 @@ const TRANSLATIONS = {
     'kb.pdf_hint':          '上傳 PDF，自動解析文字並加入知識庫',
     'kb.pdf_name_ph':       '顯示名稱（選填，預設用檔名）',
     'kb.pdf_btn':           '解析並加入知識庫',
-    'kb.pdf_ok':            '✓ 已加入 {count} 個 chunks（{filename}）',
+    'kb.pdf_ok':            '✓ 已加入 {count} 個 notes（{filename}）',
     'kb.pdf_parsing':       '解析中...',
     'kb.pdf_cat.concept':   '📖 概念（論文、教科書）',
     'kb.pdf_cat.resource':  '🔗 資源（參考手冊）',
@@ -111,7 +111,7 @@ const TRANSLATIONS = {
     'kb.crawl.topic_ph':    '主題名稱（例：金閣寺、Python 機器學習）',
     'kb.crawl.btn':         '開始爬取',
     'kb.crawl.running':     '爬取中...',
-    'kb.crawl.done':        '✓ 完成，共 {count} 個 chunks',
+    'kb.crawl.done':        '✓ 完成，共 {count} 個 notes',
     'kb.crawl.empty':       '未找到相關資料',
     // Templates
     'tmpl.label':           '或選擇範例快速開始',
@@ -239,7 +239,7 @@ const TRANSLATIONS = {
     'kb.url_name_ph':       'Source name (optional)',
     'kb.url_btn':           'Fetch & Add to Knowledge Base',
     'kb.url_cached':        '✓ Cached (recently crawled)',
-    'kb.url_ok':            '✓ Added {count} chunks',
+    'kb.url_ok':            '✓ Added {count} notes',
     'kb.text_ph':           'Paste text content...',
     'kb.text_src_ph':       'Source name (e.g. paper title)',
     'kb.text_btn':          'Add to Knowledge Base',
@@ -248,7 +248,7 @@ const TRANSLATIONS = {
     'kb.pdf_hint':          'Upload PDF — auto-parse text and add to knowledge base',
     'kb.pdf_name_ph':       'Display name (optional, defaults to filename)',
     'kb.pdf_btn':           'Parse & Add',
-    'kb.pdf_ok':            '✓ Added {count} chunks ({filename})',
+    'kb.pdf_ok':            '✓ Added {count} notes ({filename})',
     'kb.pdf_parsing':       'Parsing...',
     'kb.pdf_cat.concept':   '📖 Concept (papers, textbooks)',
     'kb.pdf_cat.resource':  '🔗 Resource (reference manuals)',
@@ -267,7 +267,7 @@ const TRANSLATIONS = {
     'kb.crawl.topic_ph':    'Topic (e.g. Kinkakuji, Python ML)',
     'kb.crawl.btn':         'Start Crawl',
     'kb.crawl.running':     'Crawling...',
-    'kb.crawl.done':        '✓ Done — {count} chunks',
+    'kb.crawl.done':        '✓ Done — {count} notes',
     'kb.crawl.empty':       'No data found',
     // Templates
     'tmpl.label':           'Or pick an example to get started',
@@ -516,6 +516,13 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-title]').forEach(el => {
     el.title = t(el.dataset.i18nTitle);
   });
+  // Undo button text is set dynamically — re-render on lang change
+  const undoBtn = document.getElementById('undo-btn');
+  if (undoBtn && undoBtn.style.display !== 'none') {
+    undoBtn.textContent = _undoRemaining > 0
+      ? t('chat.undo_n', {n: _undoRemaining})
+      : t('chat.undo');
+  }
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -617,6 +624,7 @@ let   _pulseStart    = 0;
 const _popularNames  = new Set();  // 跨 session 熱門節點名稱（golden ring 標示）
 let   _userHasZoomed = false;      // 用戶手動 zoom/pan 後停止自動 zoomToFit
 let   _isAutoZooming = false;      // programmatic zoomToFit 中，不觸發 _userHasZoomed
+let   _undoRemaining = 0;          // 目前可撤回步驟數，供 applyI18n 重新渲染按鈕文字
 
 // ── Event delegation：.nd-expand 按鈕（避免 inline onclick） ───────────────
 document.addEventListener("click", e => {
@@ -676,6 +684,7 @@ async function startSession() {
           if (evt.session_id) sessionId = evt.session_id;  // 提早設定，讓 resource fetch 能立刻用
           document.getElementById("undo-btn").style.display = "block";
           document.getElementById("undo-btn").disabled = true;  // 第一輪還沒有快照
+          _undoRemaining = 0;
           document.getElementById("undo-btn").textContent = t('chat.undo');
           if (evt.llm) {
             const badge = document.getElementById("llm-badge");
@@ -1468,7 +1477,7 @@ function _startSparkleLoop() {
       n => n._sparkleGen === _currentSparkleGen && n._source !== 'resource'
     );
     if (anyAlive) {
-      graph3D.refresh();
+      if (typeof graph3D.refresh === 'function') graph3D.refresh();
       _sparkleRafId = requestAnimationFrame(_tick);
     } else {
       _sparkleRafId = null;
@@ -2136,7 +2145,10 @@ async function _restoreSession(sid) {
     document.getElementById("goal-display").textContent = sd.goal || "";
     document.getElementById("welcome-overlay").classList.add("hidden");
     document.getElementById("restart-btn").style.display = "block";
-    document.getElementById("undo-btn").style.display    = "block";
+    const _undoBtnRestore = document.getElementById("undo-btn");
+    _undoBtnRestore.style.display = "block";
+    _undoRemaining = 0;
+    _undoBtnRestore.textContent = t('chat.undo');
     document.getElementById("export-prompt-btn").style.display = "block";
     document.getElementById("msg-input").disabled = false;
     const _sb = document.getElementById("send-btn");
@@ -2207,6 +2219,7 @@ async function undoLastStep() {
 
     // 更新按鈕狀態
     const remaining = data.snapshots_remaining || 0;
+    _undoRemaining = remaining;
     btn.textContent = remaining > 0 ? t('chat.undo_n', {n: remaining}) : t('chat.undo');
     btn.disabled = remaining === 0;
   } catch (e) {
@@ -2269,8 +2282,15 @@ function setLayout(mode) {
     graph3D.dagMode(null);
     btn.style.color = "";
   } else {
-    graph3D.dagMode(mode).dagLevelDistance(80);
-    btn.style.color = "#60a5fa";
+    try {
+      graph3D.dagMode(mode).dagLevelDistance(80);
+      btn.style.color = "#60a5fa";
+    } catch(e) {
+      // graph has cycles — fall back to force layout
+      _layoutMode = "force";
+      graph3D.dagMode(null);
+      btn.style.color = "";
+    }
   }
 }
 
@@ -3013,7 +3033,7 @@ async function loadKBStatus() {
     const status  = await statusRes.json();
     const sources = await sourcesRes.json();
     document.getElementById("kb-stats").textContent =
-      `${status.chunk_count} chunks ／ ${(sources.sources || []).length} 來源`;
+      `${status.note_count} notes ／ ${(sources.sources || []).length} 來源`;
     renderKBSources(sources.sources || []);
   } catch (_) {
     document.getElementById("kb-stats").textContent = "載入失敗";
@@ -3067,11 +3087,11 @@ function _renderKBSourceRows(sources) {
         style="flex-shrink:0;cursor:pointer;accent-color:#38bdf8">
       <span style="flex-shrink:0">${icon}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${srcFull}">${display}</span>
-      <span style="flex-shrink:0;color:#1e3a5f;font-size:10px">${s.count} chunks</span>
+      <span style="flex-shrink:0;color:#1e3a5f;font-size:10px">${s.count} notes</span>
       <button onclick="kbDeleteSource(${JSON.stringify(s.source)}, this)" style="
         flex-shrink:0;border:1px solid #3f1111;background:none;border-radius:4px;
         color:#f87171;font-size:10px;padding:2px 6px;cursor:pointer;transition:background 0.15s"
-        title="刪除此來源所有 chunks">✕</button>
+        title="刪除此來源所有 notes">✕</button>
     </div>`;
   }).join("");
 }
@@ -3203,26 +3223,21 @@ async function kbBrowse() {
   try {
     const res  = await fetch(`/api/knowledge/search?q=${encodeURIComponent(q)}&n=10`);
     const data = await res.json();
-    if (!data.chunks || data.chunks.length === 0) {
+    if (!data.results || data.results.length === 0) {
       el.innerHTML = `<div style="color:#334155;font-size:12px">${t('kb.browse.no_result')}</div>`;
       return;
     }
-    el.innerHTML = data.chunks.map(c => {
+    el.innerHTML = data.results.map(c => {
       const src = c.source_name || c.source;
-      const isLocal = c.source.startsWith("/files/");
-      const srcLink = isLocal
-        ? `<a href="${escapeHtml(c.source)}" target="_blank"
-              style="color:#60a5fa;font-size:10px;text-decoration:none">📄 ${escapeHtml(src)}</a>`
-        : `<span style="color:#334155;font-size:10px;white-space:nowrap;overflow:hidden;
-                         text-overflow:ellipsis;display:block">🔗 ${escapeHtml(src)}</span>`;
+      const links = (c.links || []).join(", ");
       return `<div class="nd-rag-chunk">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-          <span style="font-size:10px;color:#475569">${escapeHtml(c.category_label)}</span>
-          ${c.time_sensitive ? `<span style="font-size:10px;color:#fbbf24">${t('rag.time_sensitive')}</span>` : ""}
-          <span style="font-size:10px;color:#1e3a5f;margin-left:auto">d=${c.distance}</span>
+          <span style="font-size:11px;color:#e2e8f0;font-weight:600">${escapeHtml(c.title || "")}</span>
+          <span style="font-size:10px;color:#1e3a5f;margin-left:auto">d=${(c.distance||0).toFixed(3)}</span>
         </div>
-        <div class="nd-rag-text">${escapeHtml(c.text)}</div>
-        ${srcLink}
+        <div class="nd-rag-text">${escapeHtml(c.summary || "")}</div>
+        ${links ? `<div style="font-size:10px;color:#64748b;margin-top:3px">🔗 ${escapeHtml(links)}</div>` : ""}
+        <span style="color:#334155;font-size:10px;display:block;margin-top:2px">📄 ${escapeHtml(src)}</span>
       </div>`;
     }).join("");
   } catch (_) {
@@ -3318,7 +3333,7 @@ async function kbAddURL() {
     });
     const data = await res.json();
     if (data.ok) {
-      const msg = data.cached ? "已快取（7 天內爬過）" : `已加入 ${data.chunks} 個 chunks`;
+      const msg = data.cached ? "已快取（7 天內爬過）" : `已加入 ${data.notes} 個 notes`;
       _kbResult("kb-url-result", true, "✓ " + msg);
       document.getElementById("kb-url").value = "";
       await loadKBStatus();
@@ -3341,7 +3356,7 @@ async function kbAddText() {
     });
     const data = await res.json();
     if (data.ok) {
-      _kbResult("kb-text-result", true, `✓ 已加入 ${data.chunks} 個 chunks`);
+      _kbResult("kb-text-result", true, `✓ 已加入 ${data.notes} 個 notes`);
       document.getElementById("kb-text").value = "";
       await loadKBStatus();
     } else {
@@ -3372,7 +3387,7 @@ async function kbUploadPDF() {
     const data = await res.json();
     if (data.ok) {
       _kbResult("kb-pdf-result", true,
-        `✓ 已加入 ${data.chunks} 個 chunks（${escapeHtml(data.filename)}）`);
+        `✓ 已加入 ${data.notes} 個 notes（${escapeHtml(data.filename)}）`);
       fileInput.value = "";
       document.getElementById("kb-pdf-name").value = "";
       await loadKBStatus();
@@ -3396,7 +3411,7 @@ async function kbAddJSONL() {
     const data = await res.json();
     if (data.ok) {
       const warn = data.errors ? `（${data.errors} 行解析失敗）` : "";
-      _kbResult("kb-jsonl-result", true, `✓ 已匯入 ${data.chunks} 個 chunks ${warn}`);
+      _kbResult("kb-jsonl-result", true, `✓ 已匯入 ${data.notes} 個 notes ${warn}`);
       document.getElementById("kb-jsonl").value = "";
       await loadKBStatus();
     } else {
@@ -3545,7 +3560,8 @@ async function _copyExportPrompt() {
   } catch { ta.select(); document.execCommand('copy'); }
 }
 
-// 點 modal 背景關閉
-document.getElementById('export-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) _closeExportModal();
+// 點 modal 背景關閉（modal 是動態插入，用 event delegation）
+document.addEventListener('click', e => {
+  const modal = document.getElementById('export-modal');
+  if (modal && e.target === modal) _closeExportModal();
 });

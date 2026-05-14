@@ -530,3 +530,43 @@ def enrich_node_from_rag(node_id: str, verbose: bool = True) -> int:
 def crawl_and_enrich(node_id: str, verbose: bool = True):
     crawl_node(node_id, verbose)
     enrich_node_from_rag(node_id, verbose)
+
+
+# ── Obsidian-note KB import pipeline ────────────────────────────────────────
+# Used by kb_import_* endpoints (intentional, persistent KB imports).
+# crawl_node_smart_stream keeps using raw_chunks for real-time satellite fetching.
+
+def store_as_notes(text: str, source: str, source_name: str = "",
+                   pdf_path: str = "") -> int:
+    """
+    Extract Obsidian notes from text (or PDF at pdf_path) and store in KB.
+    Returns number of notes stored.
+    """
+    from ragraphe.core.extractor import extract_notes_from_text, extract_notes_from_pdf
+    from ragraphe.db.store import insert_notes
+
+    print(f"[notes] extracting notes from {source_name or source[:50]}...")
+    if pdf_path:
+        notes = extract_notes_from_pdf(pdf_path)
+    else:
+        notes = extract_notes_from_text(text)
+
+    if not notes:
+        print("[notes] no notes extracted")
+        return 0
+
+    ids = insert_notes(notes, source=source, source_name=source_name)
+    print(f"[notes] stored {len(ids)} notes")
+    return len(ids)
+
+
+def query_knowledge(embedding: list[float], n: int = 8,
+                    filter_sources: list[str] | None = None) -> list[dict]:
+    """
+    Search the notes KB by vector similarity.
+    Returns [{title, summary, links, source, distance}].
+    Used by kb_ask and kb_search as the primary knowledge query.
+    """
+    from ragraphe.db.store import query_notes
+    return query_notes(embedding, n=n,
+                       source_filter=filter_sources[0] if filter_sources and len(filter_sources) == 1 else None)

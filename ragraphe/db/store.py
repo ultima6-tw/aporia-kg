@@ -88,11 +88,15 @@ class _DBConn:
             self._conn.executescript(sql)
 
 
-# --- ChromaDB (node vectors) ---
+# --- ChromaDB (node vectors + knowledge notes) ---
 
 _chroma = chromadb.PersistentClient(path=str(CHROMA_PATH))
 nodes_collection = _chroma.get_or_create_collection(
     f"nodes_{_LLM_BACKEND}",
+    metadata={"hnsw:space": "cosine"}
+)
+notes_collection = _chroma.get_or_create_collection(
+    f"notes_{_LLM_BACKEND}",
     metadata={"hnsw:space": "cosine"}
 )
 
@@ -261,6 +265,19 @@ def init_db():
                 import_method TEXT NOT NULL DEFAULT 'unknown',
                 updated_at    TEXT NOT NULL
             )
+        """)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS kb_notes (
+                id          TEXT PRIMARY KEY,
+                title       TEXT NOT NULL,
+                summary     TEXT NOT NULL DEFAULT '',
+                links       TEXT NOT NULL DEFAULT '[]',
+                source      TEXT NOT NULL DEFAULT '',
+                source_name TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_kb_notes_source ON kb_notes (source);
+            CREATE INDEX IF NOT EXISTS idx_kb_notes_title  ON kb_notes (title);
         """)
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS audit_history (
@@ -1008,3 +1025,142 @@ def update_file_sync(file_path: str, mtime: float) -> None:
             SET last_mtime = ?, last_synced = ?
             WHERE file_path = ?
         """, (mtime, datetime.utcnow().isoformat(), file_path))
+
+
+# ── KB Notes (Obsidian-style extracted knowledge) ────────────────────────────
+
+def insert_notes(notes: list[dict], source: str, source_name: str = "") -> list[str]:
+    """
+    Insert extracted Obsidian notes into SQLite and ChromaDB.
+    Each note: {title, summary, links: [str]}
+    Returns list of inserted note IDs.
+    """
+    if not notes:
+        return []
+
+    now = datetime.now().isoformat()
+    ids = []
+
+    # Embed all note titles+summaries in one batch
+    _LLM_BACKEND_LOCAL = os.getenv("LLM_BACKEND", "ollama").lower()
+    if _LLM_BACKEND_LOCAL == "gemini":
+        from ragraphe.llm.gemini_client import embed_batch
+    else:
+        from ragraphe.llm.ollama_client import embed
+        def embed_batch(texts):
+            return [embed(t) for t in texts]
+
+    texts = [f"{n['title']}: {n.get('summary', '')}" for n in notes]
+    embeddings = embed_batch(texts)
+
+    with _DBConn() as conn:
+        for note, emb in zip(notes, embeddings):
+            note_id = uuid_hex()
+            links_json = json.dumps(note.get("links", []), ensure_ascii=False)
+            conn.execute("""
+                INSERT INTO kb_notes (id, title, summary, links, source, source_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (note_id, note["title"], note.get("summary", ""),
+                  links_json, source, source_name, now))
+            notes_collection.upsert(
+                ids=[note_id],
+                embeddings=[emb],
+                documents=[note.get("summary", "")],
+                metadatas=[{
+                    "title":       note["title"],
+                    "source":      source,
+                    "source_name": source_name,
+                    "links":       ",".join(note.get("links", [])),
+                }],
+            )
+            ids.append(note_id)
+
+    return ids
+
+
+def delete_notes_by_source(source: str) -> int:
+    """Delete all notes from a given source. Returns count deleted."""
+    with _DBConn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM kb_notes WHERE source = ?", (source,)
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            conn.execute(
+                f"DELETE FROM kb_notes WHERE source = ?", (source,)
+            )
+    if ids:
+        try:
+            notes_collection.delete(ids=ids)
+        except Exception:
+            pass
+    return len(ids)
+
+
+def query_notes(embedding: list[float], n: int = 10,
+                source_filter: str | None = None) -> list[dict]:
+    """Vector search over notes. Returns [{id, title, summary, links, source, distance}]."""
+    where = {"source": source_filter} if source_filter else None
+    kwargs = {"query_embeddings": [embedding], "n_results": min(n, notes_collection.count() or 1)}
+    if where:
+        kwargs["where"] = where
+    results = notes_collection.query(**kwargs)
+    out = []
+    for i, nid in enumerate(results["ids"][0]):
+        meta = results["metadatas"][0][i]
+        out.append({
+            "id":       nid,
+            "title":    meta.get("title", ""),
+            "summary":  results["documents"][0][i],
+            "links":    [l for l in meta.get("links", "").split(",") if l],
+            "source":   meta.get("source", ""),
+            "distance": results["distances"][0][i],
+        })
+    return out
+
+
+def get_notes_by_source(source: str) -> list[dict]:
+    """Return all notes for a given source from SQLite."""
+    with _DBConn() as conn:
+        rows = conn.execute(
+            "SELECT id, title, summary, links, source, source_name, created_at "
+            "FROM kb_notes WHERE source = ? ORDER BY created_at",
+            (source,)
+        ).fetchall()
+    return [{**dict(r), "links": json.loads(r["links"] or "[]")} for r in rows]
+
+
+def list_note_sources() -> list[dict]:
+    """Return [{source, source_name, count}] for all note sources."""
+    with _DBConn() as conn:
+        rows = conn.execute("""
+            SELECT source, source_name, COUNT(*) as count
+            FROM kb_notes GROUP BY source ORDER BY count DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_explicit_link(title_a: str, title_b: str) -> bool:
+    """
+    Check if any note for title_a explicitly links to title_b, or vice versa.
+    Used by kb_verify as the explicit_link signal.
+    """
+    a_lower, b_lower = title_a.lower(), title_b.lower()
+    with _DBConn() as conn:
+        # Notes whose title matches A — check if B is in their links
+        rows_a = conn.execute(
+            "SELECT links FROM kb_notes WHERE LOWER(title) = ?", (a_lower,)
+        ).fetchall()
+        for r in rows_a:
+            links = [l.lower() for l in json.loads(r["links"] or "[]")]
+            if b_lower in links:
+                return True
+        # And vice versa
+        rows_b = conn.execute(
+            "SELECT links FROM kb_notes WHERE LOWER(title) = ?", (b_lower,)
+        ).fetchall()
+        for r in rows_b:
+            links = [l.lower() for l in json.loads(r["links"] or "[]")]
+            if a_lower in links:
+                return True
+    return False

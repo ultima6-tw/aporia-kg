@@ -8,7 +8,8 @@ It is written for agents, not humans — dense, precise, no prose padding.
 ## What Aporia KG Is
 
 Aporia KG is an external memory and verification system for AI agents.
-It stores knowledge as embedded chunks in ChromaDB, tracks what concepts
+It extracts knowledge as Obsidian-style atomic notes (title + summary + concept links)
+using Gemini at import time, stores them in ChromaDB + SQLite, tracks what concepts
 are documented and how well they connect, and tells you what work is missing.
 
 Two primary uses:
@@ -126,32 +127,38 @@ List all past planning sessions with goals and node counts.
 ### Knowledge Base Tools (13)
 
 **`kb_import_text(text, source_name="", ttl_days=None)`**
-Add plain text to the KB. `ttl_days=0` = never expires (default). `ttl_days=N` = expires after N days.
+Add plain text to the KB. Gemini extracts atomic notes at import time. `ttl_days=0` = never expires (default).
 ```
-→ { ok: true, chunks: int, source: str }
+→ { ok: true, notes: int, source: str }
 ```
 
 **`kb_import_url(url, source_name="", ttl_days=None)`**
-Crawl a URL and import its content.
+Crawl a URL and extract notes from its content.
 
 **`kb_update_url(url, source_name="", ttl_days=None)`**
-Re-crawl a URL, replacing existing chunks. Use when the page has been updated.
+Re-crawl a URL, replacing existing notes. Use when the page has been updated.
 
 **`kb_import_pdf(pdf_url, source_name="")`**
-Download a PDF and import it in page batches. Handles large documents (tested: 1866 pages).
+Download a PDF and extract notes (TOC-based splitting for large docs, map-reduce consolidation).
+```
+→ { ok: true, notes: int, file_url: str, filename: str }
+```
 
 **`kb_import_jsonl(content, source_name="", ttl_days=None)`**
-Batch import. Each line must be `{"text": "...", "source": "optional"}`.
+Batch import. Each line must be `{"text": "..."}`. All lines are combined and extracted as notes.
 
 **`kb_search(query, n=5, group_by_source=False)`**
-Semantic search. `group_by_source=False` → raw chunks with text snippets.
+Semantic search over notes. `group_by_source=False` → notes with title + summary snippets.
 `group_by_source=True` → results grouped by source, best similarity score per source.
 Use `group_by_source=True` to discover which documents cover a concept.
+```
+→ [{ title, summary, links, source, source_name, distance }]
+```
 
 **`kb_ask(query, lang="en")`**
-RAG Q&A grounded in KB content. Returns answer with source citations. No hallucination.
+RAG Q&A grounded in KB notes. Returns answer with source citations. No hallucination.
 ```
-→ { answer: str, sources: [str], chunks_used: int }
+→ { answer: str, sources: [str], notes_used: int }
 ```
 
 **`kb_set_credibility(source, credibility)`**
@@ -159,13 +166,13 @@ Set trust weight (0.0–1.0) for a source. Affects `weighted_source_score` in ve
 Defaults: pdf/text=0.9, jsonl=0.8, url=0.7, crawler=0.4.
 
 **`kb_list_sources()`**
-List all imported sources: name, chunk count, credibility.
+List all imported sources: name, note count, credibility.
 
 **`kb_delete_source(source)`**
-Delete all chunks for a source. Use `kb_list_sources` first to get exact names.
+Delete all notes for a source. Use `kb_list_sources` first to get exact names.
 
 **`kb_status()`**
-KB health check: total chunk count, URL count, recently crawled sources.
+KB health check: total note count, source count, URL count.
 
 ---
 
@@ -173,16 +180,17 @@ KB health check: total chunk count, URL count, recently crawled sources.
 
 **`kb_verify(concept_a, concept_b, verifier_id="system")`**
 Verify the connection between two concepts using only KB evidence. No LLM involved.
-All numbers are system-computed from embeddings and document statistics.
-Stores report in ChromaDB; `prior_verifications` accumulates across distinct `verifier_id` values.
+All numbers are system-computed from embeddings and note statistics.
+Stores report in SQLite `audit_history`; `prior_verifications` accumulates across distinct `verifier_id` values.
 
 ```
 → {
     kb_support_score: float,          # 0–1, weighted formula (see below)
     details: {
+      explicit_link: bool,            # direct wiki-link A→B or B→A in notes graph
       embedding_similarity: float,    # cosine similarity of concept vectors
-      bidirectional: bool,            # each concept found in other's neighborhood
-      co_mention_count: int,          # chunks containing both concepts
+      bidirectional: bool,            # each concept found in other's note neighborhood
+      co_mention_count: int,          # notes mentioning both concepts (SQLite LIKE query)
       weighted_source_score: float,   # sum of credibility weights of supporting sources
       kb_coverage_a: float,           # how well KB covers concept_a (0–1)
       kb_coverage_b: float,
@@ -241,7 +249,7 @@ Call at session start to know what documentation work remains.
 
 **`kb_report(format="markdown", verifier_id="report")`**
 Generate a full KB completeness report:
-- All knowledge sources with chunk counts and credibility
+- All knowledge sources with note counts and credibility
 - Live audit of watchlist (gaps, weak, strong with fix_hints)
 - Audit history summary (trends across all runs)
 - Synced files and staleness status
@@ -256,10 +264,10 @@ Generate a full KB completeness report:
 **`kb_sync_file(file_path, source_name="", force=False)`**
 Sync a local file into the KB. Compares file mtime to last-synced mtime.
 If unchanged → returns `{changed: false}` without re-importing (no wasted embed calls).
-If changed → deletes old chunks and re-imports. Registers file in sync registry.
+If changed → deletes old notes and re-extracts. Registers file in sync registry.
 
 ```
-→ { ok: true, changed: bool, chunks: int, source: str }
+→ { ok: true, changed: bool, notes: int, source: str }
 ```
 
 **`kb_list_file_watches()`**
@@ -328,8 +336,8 @@ kb_set_credibility("Onboarding", 0.9)
 answer = kb_ask("How do I deploy a hotfix?")
 # → grounded answer with source citations
 
-chunks = kb_search("authentication flow", n=5)
-# → top relevant KB chunks
+notes = kb_search("authentication flow", n=5)
+# → top relevant KB notes (title + summary + concept links)
 ```
 
 ### Workflow 4 — Bulk agent evaluation (ground-truth-free)
@@ -364,7 +372,9 @@ audit = kb_audit(
 
 ### `kb_support_score`
 
-Weighted formula: `0.4 × embedding_similarity + 0.3 × min(co_mention/5, 1) + 0.3 × min(weighted_source/2, 1)`
+Weighted formula: `0.35 × explicit_link + 0.30 × embedding_similarity + 0.20 × min(co_mention/5, 1) + 0.15 × min(weighted_source/2, 1)`
+
+`explicit_link` is binary (0 or 1): 1 if concept A appears in B's note links, or vice versa.
 
 | Score | Meaning |
 |-------|---------|
@@ -383,7 +393,7 @@ Weighted formula: `0.4 × embedding_similarity + 0.3 × min(co_mention/5, 1) + 0
 
 ### `co_mention_count`
 
-Number of KB chunks that contain both concept strings in the same text block.
+Number of KB notes whose title, summary, or links mention both concept strings.
 `co_mention_count == 0` means the connection exists in design intent but is not
 documented anywhere in the KB — the gap will confuse future agents and readers.
 
@@ -438,5 +448,5 @@ Override with `kb_set_credibility(source_name, weight)`.
 |-----------|-----|
 | New content | `kb_import_text` / `kb_import_url` |
 | File changes frequently (code, docs) | `kb_sync_file` — skips if unchanged |
-| URL content updated | `kb_update_url` — deletes old chunks, re-crawls |
+| URL content updated | `kb_update_url` — deletes old notes, re-crawls and re-extracts |
 | Delete a source | `kb_delete_source` |

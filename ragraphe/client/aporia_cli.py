@@ -206,7 +206,7 @@ def kb_sync(
     if not result.get("changed"):
         rprint(f"[dim]Unchanged:[/dim] {result.get('source')} — skipped")
     else:
-        rprint(f"[green]Synced:[/green] {result.get('chunks')} chunks → {result.get('source')}")
+        rprint(f"[green]Synced:[/green] {result.get('notes')} notes → {result.get('source')}")
 
 
 @kb_app.command("sources")

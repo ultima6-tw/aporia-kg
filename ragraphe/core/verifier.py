@@ -17,7 +17,7 @@ Agent evaluation workflow:
 
 Signals used:
   1. embedding_similarity   — cosine similarity of concept embeddings
-  2. co_mention_count       — chunks that mention both concepts (excl. verify:// sources)
+  2. co_mention_count       — notes that mention both concepts (excl. verify:// sources)
   3. weighted_source_score  — sum of credibility weights of supporting sources
 
 Each call stores a verification report in ChromaDB (source = verify://A::B),
@@ -62,46 +62,49 @@ def _verify_core(a: str, b: str, vec_a: list[float], vec_b: list[float],
     which KB sources cover each concept independently — useful for locating
     where to add missing documentation when co_mention_count is 0.
     """
-    from ragraphe.core.crawler import query_raw_chunks, raw_chunks
-    from ragraphe.db.store import get_credibilities_for_sources
+    from ragraphe.db.store import (
+        query_notes, get_credibilities_for_sources, find_explicit_link, _DBConn,
+    )
 
     b_lower, a_lower = b.lower(), a.lower()
-    key = _verify_key(a, b)
 
     # ── 1. Embedding-level similarity ─────────────────────────────────────────
     embedding_similarity = round(_cosine_similarity(vec_a, vec_b), 4)
 
-    near_a = [c for c in query_raw_chunks(vec_a, n=10)
-              if not c.get("source", "").startswith("verify://")]
-    near_b = [c for c in query_raw_chunks(vec_b, n=10)
-              if not c.get("source", "").startswith("verify://")]
+    near_a = [n for n in query_notes(vec_a, n=10)
+              if not n.get("source", "").startswith("verify://")]
+    near_b = [n for n in query_notes(vec_b, n=10)
+              if not n.get("source", "").startswith("verify://")]
+
+    def _note_text(n: dict) -> str:
+        return f"{n.get('title','')} {n.get('summary','')} {' '.join(n.get('links',[]))}"
 
     bidirectional = (
-        any(b_lower in c["text"].lower() for c in near_a) and
-        any(a_lower in c["text"].lower() for c in near_b)
+        any(b_lower in _note_text(n).lower() for n in near_a) and
+        any(a_lower in _note_text(n).lower() for n in near_b)
     )
 
-    # ── 2. Co-mention count ───────────────────────────────────────────────────
+    # ── 2. Co-mention count (SQLite notes search) ─────────────────────────────
     try:
-        hits = raw_chunks.get(
-            where_document={"$contains": a},
-            include=["documents", "metadatas"],
-        )
-        co_mention_chunks = [
-            {"text": doc, "source": meta.get("source", "")}
-            for doc, meta in zip(hits.get("documents", []), hits.get("metadatas", []))
-            if b_lower in doc.lower()
-            and not meta.get("source", "").startswith("verify://")
-        ]
+        with _DBConn() as conn:
+            rows = conn.execute("""
+                SELECT DISTINCT source FROM kb_notes
+                WHERE source NOT LIKE 'verify://%'
+                  AND (LOWER(title) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(links) LIKE ?)
+                  AND (LOWER(title) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(links) LIKE ?)
+            """, (
+                f"%{a_lower}%", f"%{a_lower}%", f"%{a_lower}%",
+                f"%{b_lower}%", f"%{b_lower}%", f"%{b_lower}%",
+            )).fetchall()
+        co_mention_count   = len(rows)
+        co_mention_sources = {r[0] for r in rows}
     except Exception:
-        co_mention_chunks = []
-
-    co_mention_count   = len(co_mention_chunks)
-    co_mention_sources = {c["source"] for c in co_mention_chunks if c["source"]}
+        co_mention_count   = 0
+        co_mention_sources = set()
 
     # ── 3. KB coverage ────────────────────────────────────────────────────────
-    coverage_sources_a = {c["source"] for c in near_a}
-    coverage_sources_b = {c["source"] for c in near_b}
+    coverage_sources_a = {n["source"] for n in near_a}
+    coverage_sources_b = {n["source"] for n in near_b}
     kb_coverage_a = round(min(1.0, len(coverage_sources_a) / 5), 3)
     kb_coverage_b = round(min(1.0, len(coverage_sources_b) / 5), 3)
     data_sufficient = kb_coverage_a > 0.1 and kb_coverage_b > 0.1
@@ -111,22 +114,31 @@ def _verify_core(a: str, b: str, vec_a: list[float], vec_b: list[float],
     credibilities         = get_credibilities_for_sources(list(supporting_sources))
     weighted_source_score = round(sum(credibilities.values()), 3)
 
-    # ── 5. Prior independent verifications ───────────────────────────────────
+    # ── 5. Prior independent verifications (from SQLite audit_history) ────────
     try:
-        prior = raw_chunks.get(where={"source": key}, include=["metadatas"])
-        prior_verifier_ids = {m.get("verifier_id", "") for m in prior.get("metadatas", [])}
-        prior_verifier_ids.discard("")
-        prior_verifications = len(prior_verifier_ids)
+        with _DBConn() as conn:
+            rows = conn.execute("""
+                SELECT DISTINCT verifier_id FROM audit_history
+                WHERE (concept_a = ? AND concept_b = ?) OR (concept_a = ? AND concept_b = ?)
+                  AND verifier_id IS NOT NULL AND verifier_id != ''
+            """, (a, b, b, a)).fetchall()
+        prior_verifications = len(rows)
     except Exception:
         prior_verifications = 0
 
-    # ── 6. kb_support_score ───────────────────────────────────────────────────
-    # Weights: similarity 40 %, co-mention 30 %, source credibility 30 %
-    # Normalisation: 5 co-mentions = full score; weighted_score 2.0 = full score
+    # ── 6. Explicit link (Obsidian notes) ────────────────────────────────────
+    try:
+        explicit_link = find_explicit_link(a, b)
+    except Exception:
+        explicit_link = False
+
+    # ── 7. kb_support_score ───────────────────────────────────────────────────
+    # Weights: explicit_link 35 %, similarity 30 %, co-mention 20 %, credibility 15 %
     kb_support_score = round(
-        0.4 * embedding_similarity
-        + 0.3 * min(1.0, co_mention_count / 5)
-        + 0.3 * min(1.0, weighted_source_score / 2.0),
+        0.35 * (1.0 if explicit_link else 0.0)
+        + 0.30 * embedding_similarity
+        + 0.20 * min(1.0, co_mention_count / 5)
+        + 0.15 * min(1.0, weighted_source_score / 2.0),
         4,
     )
 
@@ -137,6 +149,7 @@ def _verify_core(a: str, b: str, vec_a: list[float], vec_b: list[float],
         "verifier_id":         verifier_id,
         "kb_support_score":    kb_support_score,
         "details": {
+            "explicit_link":         explicit_link,
             "embedding_similarity":  embedding_similarity,
             "bidirectional":         bidirectional,
             "co_mention_count":      co_mention_count,
@@ -148,26 +161,26 @@ def _verify_core(a: str, b: str, vec_a: list[float], vec_b: list[float],
         "data_sufficient":     data_sufficient,
     }
 
-    # ── 7. Store report in ChromaDB ───────────────────────────────────────────
+    # ── 8. Store report in SQLite audit_history ───────────────────────────────
+    status = "strong" if kb_support_score >= 0.6 else ("weak" if co_mention_count > 0 else "gap")
     try:
-        raw_chunks.upsert(
-            ids        = [str(uuid.uuid4())],
-            embeddings = [vec_a],
-            documents  = [json.dumps(report, ensure_ascii=False)],
-            metadatas  = [{
-                "source":       key,
-                "source_name":  f"Verification: {a} ↔ {b}",
-                "category":     "verification",
-                "verifier_id":  verifier_id,
-                "lang_en":      True,
-                "lang_zh":      False,
-                "lang_ja":      False,
-            }],
-        )
+        with _DBConn() as conn:
+            conn.execute("""
+                INSERT INTO audit_history
+                    (run_id, run_at, concept_a, concept_b, status, score,
+                     co_mention, verifier_id, fix_hint)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                str(uuid.uuid4()),
+                datetime.utcnow().isoformat(),
+                a, b, status, kb_support_score,
+                co_mention_count, verifier_id,
+                json.dumps({"explicit_link": explicit_link}),
+            ))
     except Exception:
         pass
 
-    # ── 8. Fix hints (returned separately, not stored) ────────────────────────
+    # ── 9. Fix hints (returned separately, not stored) ────────────────────────
     only_a = sorted(coverage_sources_a - coverage_sources_b)
     only_b = sorted(coverage_sources_b - coverage_sources_a)
     fix_hints = {
@@ -335,11 +348,11 @@ def _fmt_markdown(data: dict) -> str:
     lines.append(f"Generated: {now} UTC\n")
 
     # ── Sources ──────────────────────────────────────────────────────────────
-    total_chunks = sum(s.get("count", 0) for s in sources)
-    lines.append(f"## Knowledge Sources ({len(sources)} sources, {total_chunks:,} chunks)\n")
+    total_notes = sum(s.get("count", 0) for s in sources)
+    lines.append(f"## Knowledge Sources ({len(sources)} sources, {total_notes:,} notes)\n")
     if sources:
-        lines.append("| Source | Chunks | Credibility |")
-        lines.append("|--------|-------:|------------:|")
+        lines.append("| Source | Notes | Credibility |")
+        lines.append("|--------|------:|------------:|")
         for s in sources:
             lines.append(f"| {s['source']} | {s.get('count', 0):,} | {s.get('credibility', 0.5):.2f} |")
     else:
@@ -442,16 +455,15 @@ def generate_report(format: str = "markdown", verifier_id: str = "report") -> st
                      "json" for structured data
         verifier_id: Identifier for the audit run triggered by this report
     """
-    from ragraphe.core.crawler import list_chunk_sources
     from ragraphe.db.store import (
-        list_watch_concepts, get_audit_summary, list_file_watches,
-        get_credibilities_for_sources,
+        list_note_sources, list_watch_concepts, get_audit_summary,
+        list_file_watches, get_credibilities_for_sources,
     )
 
     now = datetime.utcnow().isoformat()[:16]
 
     # Sources
-    sources = list_chunk_sources()
+    sources = list_note_sources()
     creds   = get_credibilities_for_sources([s["source"] for s in sources])
     for s in sources:
         s["credibility"] = creds.get(s["source"], 0.5)

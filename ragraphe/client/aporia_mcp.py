@@ -221,7 +221,7 @@ def kb_update_url(url: str, source_name: str = "",
                   ttl_days: int | None = None) -> dict:
     """
     Re-crawl an existing URL source to refresh its content in the knowledge base.
-    Deletes all existing chunks for this source before re-importing.
+    Deletes all existing notes for this source before re-importing.
     Use this when a page has been updated and you want the latest version.
 
     Args:
@@ -263,12 +263,12 @@ def kb_import_text(text: str, source_name: str = "",
 @mcp.tool()
 def kb_search(query: str, n: int = 5, group_by_source: bool = False) -> list[dict]:
     """
-    Search the knowledge base for relevant chunks or concept-level neighbors.
+    Search the knowledge base for relevant notes or concept-level neighbors.
 
     Args:
         query: Search query (semantic search)
         n: Number of results to return (default 5)
-        group_by_source: False (default) → raw chunks with text snippets;
+        group_by_source: False (default) → notes with title+summary snippets;
                          True → results grouped by source with best similarity score,
                          useful for discovering which knowledge sources are related to a concept
     """
@@ -298,7 +298,7 @@ def kb_verify(concept_a: str, concept_b: str, verifier_id: str = "system") -> di
         details:             raw measurements — use these to apply your own weights
           embedding_similarity:   cosine similarity of the two concept embeddings
           bidirectional:          True if each concept appears in the other's neighborhood
-          co_mention_count:       chunks mentioning both concepts (verify:// excluded)
+          co_mention_count:       notes mentioning both concepts (verify:// excluded)
           weighted_source_score:  sum of credibility weights of supporting sources
           kb_coverage_a/b:        how well KB covers each concept independently (0–1)
         prior_verifications: number of distinct prior verifier_ids that confirmed this pair
@@ -332,7 +332,7 @@ def kb_set_credibility(source: str, credibility: float) -> dict:
 def kb_list_sources() -> list[dict]:
     """
     List all knowledge sources currently in the knowledge base.
-    Shows source names and chunk counts — useful for auditing what's been imported.
+    Shows source names and note counts — useful for auditing what's been imported.
     """
     return _client.list_kb_sources()
 
@@ -340,7 +340,7 @@ def kb_list_sources() -> list[dict]:
 @mcp.tool()
 def kb_delete_source(source: str) -> dict:
     """
-    Delete all chunks belonging to a specific knowledge source.
+    Delete all notes belonging to a specific knowledge source.
     Use kb_list_sources first to find the exact source name.
 
     Args:
@@ -352,7 +352,7 @@ def kb_delete_source(source: str) -> dict:
 @mcp.tool()
 def kb_status() -> dict:
     """
-    Return knowledge base statistics: total chunk count, URL count, and recently crawled URLs.
+    Return knowledge base statistics: total note count, URL count, and recently crawled URLs.
     Use this to get a quick health check of the knowledge base.
     """
     return _client.kb_status_info()
@@ -388,7 +388,7 @@ def kb_ask(query: str, lang: str = "en") -> dict:
     Returns:
         answer: Grounded answer with source citations
         sources: List of source documents used
-        chunks_used: Number of context chunks retrieved
+        notes_used: Number of context notes retrieved
     """
     return _client.kb_ask(query, lang=lang)
 

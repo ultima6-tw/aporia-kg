@@ -23,7 +23,7 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from ragraphe.core.path_planner import generate_skeleton_stream, plan_path
 from ragraphe.core.visualizer import build_graph_data, node_to_vis, edge_to_vis, _is_day_based
-from ragraphe.core.crawler import query_raw_chunks, RAG_THRESHOLD, crawl_node_smart, delete_chunks_by_source, list_chunk_sources
+from ragraphe.core.crawler import query_raw_chunks, RAG_THRESHOLD, crawl_node_smart
 from ragraphe.config.freshness import detect_topic, needs_realtime, get_topic_name
 
 # chat + embed backend: ollama (default) or gemini (set LLM_BACKEND=gemini)
@@ -251,10 +251,11 @@ class KnowledgeTextRequest(BaseModel):
 
 
 class KnowledgeJSONLRequest(BaseModel):
-    content:    str
-    source:     str = "匯入"
-    session_id: str = ""
-    ttl_days:   int | None = None
+    content:     str
+    source:      str = ""
+    source_name: str = ""
+    session_id:  str = ""
+    ttl_days:    int | None = None
 
 
 class KnowledgeAskRequest(BaseModel):
@@ -3002,58 +3003,58 @@ def knowledge_crawl(req: KnowledgeCrawlRequest):
 
 @app.get("/api/knowledge/search")
 def knowledge_search(q: str, n: int = 10, group_by_source: bool = False):
-    """Search raw_chunks and return relevant chunks or source-grouped neighbors."""
-    from ragraphe.core.crawler import query_raw_chunks
-    from ragraphe.core.category import CATEGORY_LABEL, TIME_SENSITIVE
+    """Search notes and return relevant results or source-grouped neighbors."""
+    from ragraphe.core.crawler import query_knowledge
     if not q.strip():
-        return {"chunks": []}
+        return {"results": []}
     try:
         vec = embed(q[:300])
-        chunks = query_raw_chunks(vec, n=n)
+        notes = query_knowledge(vec, n=n)
         if not group_by_source:
             return {
-                "chunks": [
+                "results": [
                     {
-                        "text":           c["text"][:300],
-                        "source":         c["source"],
-                        "source_name":    c.get("source_name", ""),
-                        "category":       c.get("category", "general"),
-                        "category_label": CATEGORY_LABEL.get(c.get("category","general"), "📄"),
-                        "time_sensitive": c.get("category","general") in TIME_SENSITIVE,
-                        "distance":       round(c["distance"], 3),
+                        "title":       note["title"],
+                        "summary":     note["summary"][:300],
+                        "links":       note.get("links", []),
+                        "source":      note["source"],
+                        "source_name": note.get("source_name", ""),
+                        "distance":    round(note["distance"], 3),
                     }
-                    for c in chunks
+                    for note in notes
                 ]
             }
         # Group by source — surface concept-level neighbors with best similarity score
         sources: dict[str, dict] = {}
-        for c in chunks:
-            src = c["source"]
+        for note in notes:
+            src = note["source"]
             if src not in sources:
                 sources[src] = {
-                    "source":      src,
-                    "source_name": c.get("source_name", "") or src,
-                    "category":    c.get("category", "general"),
-                    "best_distance": round(c["distance"], 3),
-                    "chunk_count": 0,
-                    "snippet":     c["text"][:200],
+                    "source":        src,
+                    "source_name":   note.get("source_name", "") or src,
+                    "best_distance": round(note["distance"], 3),
+                    "note_count":    0,
+                    "snippet":       note["title"],
                 }
-            sources[src]["chunk_count"] += 1
-            if c["distance"] < sources[src]["best_distance"]:
-                sources[src]["best_distance"] = round(c["distance"], 3)
-                sources[src]["snippet"] = c["text"][:200]
+            sources[src]["note_count"] += 1
+            if note["distance"] < sources[src]["best_distance"]:
+                sources[src]["best_distance"] = round(note["distance"], 3)
+                sources[src]["snippet"] = note["title"]
         neighbors = sorted(sources.values(), key=lambda x: x["best_distance"])
         return {"neighbors": neighbors}
     except Exception as e:
-        return {"chunks": [], "error": str(e)}
+        return {"results": [], "error": str(e)}
 
 
 @app.get("/api/knowledge/status")
 def knowledge_status():
-    """Return knowledge base statistics: chunk count and crawled URL count."""
-    from ragraphe.core.crawler import raw_chunks
+    """Return knowledge base statistics: note count and crawled URL count."""
+    from ragraphe.db.store import list_note_sources
+    sources = list_note_sources()
+    note_count = sum(s.get("count", 0) for s in sources)
     return {
-        "chunk_count": raw_chunks.count(),
+        "note_count":  note_count,
+        "source_count": len(sources),
         "url_count":   len(list_crawled_urls(limit=9999)),
         "recent_urls": list_crawled_urls(limit=10),
     }
@@ -3062,67 +3063,72 @@ def knowledge_status():
 @app.post("/api/knowledge/url")
 def knowledge_add_url(req: KnowledgeURLRequest):
     """Crawl a URL and add its content to the knowledge base."""
-    from ragraphe.core.crawler import fetch_text, chunk_text, store_chunks
+    from ragraphe.core.crawler import fetch_text, store_as_notes
     url = req.url.strip()
     if not url.startswith("http"):
         return {"ok": False, "error": "Invalid URL"}
     cached = is_url_cached(url)
     if cached:
-        return {"ok": True, "chunks": 0, "cached": True}
+        return {"ok": True, "notes": 0, "cached": True}
     text = fetch_text(url)
     if not text:
         return {"ok": False, "error": "Failed to retrieve page content"}
     source = req.source or url
-    chunks = chunk_text(text, source)
-    # Override the URL with the specified source name (for easier identification)
-    if req.source:
-        for c in chunks:
-            c["source"] = req.source
-    store_chunks(chunks, ttl_days=req.ttl_days)
-    mark_url_crawled(url, len(chunks), ttl_days=req.ttl_days)
+    n = store_as_notes(text, source=source, source_name=source)
+    mark_url_crawled(url, n, ttl_days=req.ttl_days)
     set_source_credibility(source, CREDIBILITY_DEFAULTS["url"], "url")
-    return {"ok": True, "chunks": len(chunks), "cached": False}
+    return {"ok": True, "notes": n, "cached": False}
 
 
 @app.post("/api/knowledge/text")
 def knowledge_add_text(req: KnowledgeTextRequest):
     """Add text directly to the knowledge base."""
-    from ragraphe.core.crawler import chunk_text, store_chunks
+    from ragraphe.core.crawler import store_as_notes
     if not req.text.strip():
         return {"ok": False, "error": "Content cannot be empty"}
-    # Use a pseudo-source for text imports (makes later listing and deletion easier)
     source = req.source or f"text://import_{uuid.uuid4().hex[:8]}"
-    chunks = chunk_text(req.text, source)
-    for c in chunks:
-        if req.source:
-            c["source_name"] = req.source
-    ttl = req.ttl_days if req.ttl_days is not None else 0  # text imports default to never-expire
-    store_chunks(chunks, category="concept", ttl_days=ttl)
+    n = store_as_notes(req.text, source=source, source_name=source)
     set_source_credibility(source, CREDIBILITY_DEFAULTS["text"], "text")
-    return {"ok": True, "chunks": len(chunks), "source": source}
+    return {"ok": True, "notes": n, "source": source}
 
 
 @app.get("/api/knowledge/sources")
 def knowledge_list_sources():
-    """List all imported sources with credibility weights."""
-    sources = list_chunk_sources()
+    """List all imported note sources with credibility weights."""
+    from ragraphe.db.store import list_note_sources
+    sources = list_note_sources()
     creds = get_credibilities_for_sources([s["source"] for s in sources])
     for s in sources:
-        s["credibility"]   = creds.get(s["source"], CREDIBILITY_DEFAULTS["unknown"])
+        s["credibility"] = creds.get(s["source"], CREDIBILITY_DEFAULTS["unknown"])
     return {"sources": sources}
 
 
 @app.post("/api/knowledge/delete_source")
 def knowledge_delete_source(req: KnowledgeDeleteRequest):
-    """Delete all chunks for the specified source."""
+    """Delete all notes for the specified source."""
     if not req.source:
         return {"ok": False, "error": "source cannot be empty"}
-    deleted = delete_chunks_by_source(req.source)
-    # Also clear the crawled_urls record (so it can be re-crawled next time)
-    from ragraphe.db.store import _DBConn
+    from ragraphe.db.store import delete_notes_by_source, _DBConn
+    deleted = delete_notes_by_source(req.source)
     with _DBConn() as conn:
         conn.execute("DELETE FROM crawled_urls WHERE url = ?", (req.source,))
     return {"ok": True, "deleted": deleted}
+
+
+@app.post("/api/knowledge/reset_chunks")
+def knowledge_reset_chunks():
+    """Delete the entire raw_chunks ChromaDB collection (KB migration to notes pipeline)."""
+    import ragraphe.core.crawler as _crawler_mod
+    from ragraphe.db.store import _chroma
+    try:
+        collection_name = _crawler_mod.raw_chunks.name
+        _chroma.delete_collection(collection_name)
+        new_col = _chroma.get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
+        # Patch module-level reference so satellite crawler keeps working in this process
+        _crawler_mod.raw_chunks = new_col
+        return {"ok": True, "deleted_collection": collection_name}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/knowledge/pdf")
@@ -3132,59 +3138,41 @@ async def knowledge_upload_pdf(
     category:    str        = Form("concept"),
     session_id:  str        = Form(""),
 ):
-    """Upload PDF → parse → chunk + embed → raw_chunks; file stored in data/files/."""
-    from ragraphe.core.crawler import chunk_text, store_chunks
+    """Upload PDF → extract Obsidian notes → store in KB; file stored in data/files/."""
+    from ragraphe.core.crawler import store_as_notes
 
     if not file.filename.lower().endswith(".pdf"):
         return {"ok": False, "error": "Only PDF files are supported"}
 
-    # Save file (use uuid to avoid filename conflicts; preserve original name for display)
     safe_stem = re.sub(r"[^\w\-.]", "_", Path(file.filename).stem)[:60]
     unique_name = f"{uuid.uuid4().hex[:8]}_{safe_stem}.pdf"
     dest = FILES_DIR / unique_name
     content = await file.read()
     dest.write_bytes(content)
 
-    # Parse and chunk page-by-page (no char limit — index entire manual)
-    from ragraphe.core.crawler import chunk_text, store_chunks
+    display_name = source_name or file.filename
+    source_path  = f"/files/{unique_name}"
+
     try:
-        from pypdf import PdfReader
-        reader = PdfReader(str(dest))
-        display_name = source_name or file.filename
-        source_path  = f"/files/{unique_name}"
-        all_chunks: list[dict] = []
-        for page in reader.pages:
-            page_text = (page.extract_text() or "").strip()
-            if len(page_text) > 50:
-                page_chunks = chunk_text(page_text, source_path)
-                for c in page_chunks:
-                    c["source_name"] = display_name
-                all_chunks.extend(page_chunks)
+        n = store_as_notes("", source=source_path, source_name=display_name,
+                           pdf_path=str(dest))
     except Exception as e:
         dest.unlink(missing_ok=True)
-        return {"ok": False, "error": f"Failed to parse PDF: {e}"}
+        return {"ok": False, "error": f"Failed to extract notes from PDF: {e}"}
 
-    if not all_chunks:
+    if n == 0:
         dest.unlink(missing_ok=True)
-        return {"ok": False, "error": "Failed to extract text from PDF"}
+        return {"ok": False, "error": "Failed to extract any notes from PDF"}
 
-    chunks = all_chunks
-    store_chunks(chunks, category=category, ttl_days=0)   # PDFs never expire
-    return {
-        "ok":       True,
-        "chunks":   len(chunks),
-        "file_url": source_path,
-        "filename": display_name,
-    }
+    set_source_credibility(source_path, CREDIBILITY_DEFAULTS["pdf"], "pdf")
+    return {"ok": True, "notes": n, "file_url": source_path, "filename": display_name}
 
 
 @app.post("/api/knowledge/jsonl")
 def knowledge_add_jsonl(req: KnowledgeJSONLRequest):
-    """Parse JSONL format and add to the knowledge base (one {"text":"...","source":"..."} per line)."""
-    from ragraphe.core.crawler import store_chunks
-    import uuid as _uuid
-    chunks = []
-    errors = 0
+    """Parse JSONL and add to the knowledge base via note extraction."""
+    from ragraphe.core.crawler import store_as_notes
+    lines, errors = [], 0
     for line in req.content.splitlines():
         line = line.strip()
         if not line:
@@ -3192,43 +3180,36 @@ def knowledge_add_jsonl(req: KnowledgeJSONLRequest):
         try:
             obj = _json.loads(line)
             text = obj.get("text", "").strip()
-            if not text:
-                continue
-            chunks.append({
-                "id":     str(_uuid.uuid4()),
-                "text":   text,
-                "source": obj.get("source", req.source),
-            })
+            if text:
+                lines.append(text)
         except Exception:
             errors += 1
-    if not chunks:
+    if not lines:
         return {"ok": False, "error": f"No valid data ({errors} lines failed to parse)"}
-    store_chunks(chunks, ttl_days=req.ttl_days)
-    if req.source:
-        set_source_credibility(req.source, CREDIBILITY_DEFAULTS["jsonl"], "jsonl")
-    return {"ok": True, "chunks": len(chunks), "errors": errors}
+    combined = "\n\n".join(lines)
+    source = req.source or req.source_name or f"jsonl://import_{uuid.uuid4().hex[:8]}"
+    display = req.source_name or source
+    n = store_as_notes(combined, source=source, source_name=display)
+    set_source_credibility(source, CREDIBILITY_DEFAULTS["jsonl"], "jsonl")
+    return {"ok": True, "notes": n, "errors": errors}
 
 
 @app.post("/api/knowledge/update_url")
 def knowledge_update_url(req: KnowledgeUpdateURLRequest):
-    """Delete existing chunks for a URL and re-crawl it with a new TTL."""
-    from ragraphe.core.crawler import fetch_text, chunk_text, store_chunks
-    from ragraphe.db.store import _DBConn
+    """Delete existing notes for a URL and re-extract with fresh content."""
+    from ragraphe.core.crawler import fetch_text, store_as_notes
+    from ragraphe.db.store import delete_notes_by_source, _DBConn
     source = req.source or req.url
-    delete_chunks_by_source(source)
+    delete_notes_by_source(source)
     with _DBConn() as conn:
         conn.execute("DELETE FROM crawled_urls WHERE url = ?", (req.url,))
     text = fetch_text(req.url)
     if not text:
         return {"ok": False, "error": "Failed to retrieve page content"}
-    chunks = chunk_text(text, source)
-    if req.source:
-        for c in chunks:
-            c["source"] = req.source
-    store_chunks(chunks, ttl_days=req.ttl_days)
-    mark_url_crawled(req.url, len(chunks), ttl_days=req.ttl_days)
+    n = store_as_notes(text, source=source, source_name=source)
+    mark_url_crawled(req.url, n, ttl_days=req.ttl_days)
     set_source_credibility(source, CREDIBILITY_DEFAULTS["url"], "url")
-    return {"ok": True, "chunks": len(chunks), "refreshed": True}
+    return {"ok": True, "notes": n, "refreshed": True}
 
 
 @app.post("/api/knowledge/verify")
@@ -3251,24 +3232,25 @@ def knowledge_set_credibility(req: KnowledgeSetCredibilityRequest):
 
 @app.post("/api/knowledge/ask")
 def knowledge_ask(req: KnowledgeAskRequest):
-    """RAG Q&A: search KB → build context → Gemini → return grounded answer."""
-    from ragraphe.core.crawler import query_raw_chunks
+    """RAG Q&A: search KB notes → build context → Gemini → return grounded answer."""
+    from ragraphe.core.crawler import query_knowledge
     if not req.query.strip():
-        return {"answer": "", "sources": [], "chunks_used": 0}
+        return {"answer": "", "sources": [], "notes_used": 0}
     try:
         vec = embed(req.query[:300])
-        chunks = query_raw_chunks(vec, n=req.n)
+        chunks = query_knowledge(vec, n=req.n)
         if not chunks:
             return {
                 "answer": "No relevant content found in the knowledge base for this query.",
                 "sources": [],
-                "chunks_used": 0,
+                "notes_used": 0,
             }
-        # Build context block
+        # Build context from notes (title + summary)
         context_parts = []
         for i, c in enumerate(chunks, 1):
             src = c.get("source_name") or c.get("source", "")
-            context_parts.append(f"[{i}] (source: {src})\n{c['text'][:600]}")
+            note_text = f"{c.get('title','')}: {c.get('summary', c.get('text',''))}"
+            context_parts.append(f"[{i}] (source: {src})\n{note_text[:600]}")
         context = "\n\n".join(context_parts)
 
         lang_instruction = {
@@ -3294,9 +3276,9 @@ def knowledge_ask(req: KnowledgeAskRequest):
                 seen.add(src)
                 sources.append(src)
 
-        return {"answer": answer, "sources": sources, "chunks_used": len(chunks)}
+        return {"answer": answer, "sources": sources, "notes_used": len(chunks)}
     except Exception as e:
-        return {"answer": "", "sources": [], "chunks_used": 0, "error": str(e)}
+        return {"answer": "", "sources": [], "notes_used": 0, "error": str(e)}
 
 
 @app.post("/api/knowledge/audit")
@@ -3374,12 +3356,12 @@ def knowledge_report(format: str = "markdown", verifier_id: str = "report"):
 @app.post("/api/knowledge/sync_file")
 def knowledge_sync_file(req: KnowledgeSyncFileRequest):
     """
-    Sync a local file into the KB.
-    Compares file mtime against the last-synced mtime; skips if unchanged (unless force=True).
-    On change: deletes old chunks and re-imports.
-    Also registers the file in file_watch_registry for future sync calls.
+    Sync a local file into the KB via note extraction.
+    Compares mtime; skips if unchanged (unless force=True).
+    On change: deletes old notes and re-extracts.
     """
-    from ragraphe.core.crawler import chunk_text, store_chunks, delete_chunks_by_source
+    from ragraphe.core.crawler import store_as_notes
+    from ragraphe.db.store import delete_notes_by_source
     import os
     from pathlib import Path
 
@@ -3396,16 +3378,22 @@ def knowledge_sync_file(req: KnowledgeSyncFileRequest):
         return {"ok": True, "changed": False, "source": source_name,
                 "message": "File unchanged since last sync"}
 
-    text = Path(file_path).read_text(encoding="utf-8", errors="replace")
-    delete_chunks_by_source(source_name)
-    chunks = chunk_text(text, source_name)
-    store_chunks(chunks, category="concept", ttl_days=0)
+    is_pdf = file_path.lower().endswith(".pdf")
+    delete_notes_by_source(source_name)
+
+    if is_pdf:
+        n = store_as_notes("", source=source_name, source_name=source_name,
+                           pdf_path=file_path)
+    else:
+        text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+        n = store_as_notes(text, source=source_name, source_name=source_name)
+
     set_source_credibility(source_name, CREDIBILITY_DEFAULTS["text"], "text")
     update_file_sync(file_path, mtime)
     add_priority_source(name=source_name, url=f"file://{file_path}",
                         category="text", ttl_days=0)
 
-    return {"ok": True, "changed": True, "chunks": len(chunks), "source": source_name}
+    return {"ok": True, "changed": True, "notes": n, "source": source_name}
 
 
 # ── Frontend HTML ─────────────────────────────────────────────────────────────
